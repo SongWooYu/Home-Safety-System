@@ -141,7 +141,7 @@ class VideoCamera:
         )[0]
 
         # OpenCV JPEG 인코딩/그리기용 BGR 변환
-        frame = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+        frame = frame_rgb.copy()
 
         # Bounding boxes
         boxes = None
