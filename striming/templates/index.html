@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RPi 5 Camera Stream</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background-color: #f0f0f0; }
+        .container { margin-top: 50px; }
+        img { border: 5px solid #333; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Raspberry Pi 5 Camera Module 3</h1>
+        <p>실시간 스트리밍 데모</p>
+        <img src="{{ url_for('video_feed') }}" width="640" height="480">
+    </div>
+</body>
+</html>

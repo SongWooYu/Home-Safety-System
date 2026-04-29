@@ -1,0 +1,25 @@
+services:
+  safety-app:
+    image: debian:bookworm-slim
+    container_name: safety-app
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    ports:
+      - "80:5000"
+    privileged: true
+    tty: true           # 컨테이너가 바로 꺼지지 않게 유지
+    stdin_open: true    # 터미널 접속 가능하게 유지
+    devices:
+      - "/dev/video0:/dev/video0"
+      - "/dev/video1:/dev/video1"
+      - "/dev/video2:/dev/video2"
+      - "/dev/video3:/dev/video3"
+      - "/dev/video4:/dev/video4"
+      - "/dev/video5:/dev/video5"
+      - "/dev/video6:/dev/video6"
+      - "/dev/video7:/dev/video7"
+      - "/dev/media0:/dev/media0"
+      - "/dev/media1:/dev/media1"
+      - "/dev/media2:/dev/media2"
+      - "/dev/media3:/dev/media3"
