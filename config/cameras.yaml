@@ -1,0 +1,52 @@
+server:
+  host: 0.0.0.0
+  port: 8080
+  jpeg_quality: 80
+
+mqtt:
+  enabled: true
+  host: 192.168.1.10
+  port: 1883
+  topic_events: home/vision/events
+  topic_status_prefix: home/vision/status
+
+inference:
+  backend: ncnn
+  model: models/yolo11n_ncnn_model
+  input_size: 320
+  confidence: 0.35
+  nms_iou: 0.45
+  threads: 4
+
+cameras:
+  - id: cam3
+    label: Camera Module 3
+    type: picamera2
+    enabled: true
+    ai_enabled: true
+    analysis_fps: 5
+    width: 640
+    height: 480
+    fps: 30
+
+  - id: webcam
+    label: ABKO APC720 Webcam
+    type: v4l2
+    enabled: true
+    ai_enabled: true
+    analysis_fps: 4
+    device: /dev/v4l/by-id/usb-SunplusIT_Inc_ABKO_APC720_HD_WEBCAM_N2020120301-video-index0
+    input_format: MJPG
+    width: 1280
+    height: 720
+    fps: 30
+
+  - id: dahua
+    label: Dahua IP Camera
+    type: rtsp
+    enabled: true
+    ai_enabled: true
+    analysis_fps: 4
+    url: ${DAHUA_RTSP_URL}
+    transport: tcp
+

@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
+
+
+def _load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip())
+
+
+def _expand(value: Any) -> Any:
+    if isinstance(value, str):
+        return ENV_PATTERN.sub(lambda match: os.getenv(match.group(1), ""), value)
+    if isinstance(value, list):
+        return [_expand(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _expand(item) for key, item in value.items()}
+    return value
+
+
+def load_config(path: str | Path) -> dict[str, Any]:
+    config_path = Path(path).resolve()
+    project_root = config_path.parent.parent
+    _load_dotenv(project_root / ".env")
+
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    data = _expand(data)
+    data["project_root"] = str(project_root)
+
+    model_path = Path(data["inference"]["model"])
+    if not model_path.is_absolute():
+        data["inference"]["model"] = str(project_root / model_path)
+    return data
+

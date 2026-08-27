@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Smart Home Vision</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b0f16; --panel:#151b25; --line:#293345; --text:#eef3fb; --muted:#8f9bad; --green:#36d17c; --red:#ff6374; --blue:#6aa9ff; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,sans-serif; }
+    header { padding:22px 26px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+    h1 { font-size:21px; margin:0; }
+    .summary { color:var(--muted); }
+    main { padding:22px; max-width:1600px; margin:auto; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:18px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+    .card-head { padding:12px 14px; display:flex; justify-content:space-between; align-items:center; }
+    .name { font-weight:700; }
+    .badge { padding:3px 9px; border-radius:99px; background:#303847; color:var(--muted); font-size:12px; }
+    .badge.online { background:rgba(54,209,124,.15); color:var(--green); }
+    .badge.person { background:rgba(255,99,116,.15); color:var(--red); }
+    .stream { width:100%; aspect-ratio:16/10; object-fit:contain; display:block; background:#05070a; }
+    .meta { padding:10px 14px 14px; color:var(--muted); font-size:13px; min-height:44px; }
+    .events { margin-top:22px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
+    .events h2 { margin:0 0 12px; font-size:17px; }
+    #event-list { display:grid; gap:8px; }
+    .event { display:flex; gap:12px; padding:9px 11px; background:#101620; border-radius:8px; }
+    .event time { color:var(--muted); min-width:90px; }
+    .event strong { color:var(--blue); }
+    @media (max-width:600px) { .grid{grid-template-columns:1fr} main{padding:12px} header{padding:16px} }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Smart Home Vision</h1>
+    <div class="summary" id="summary">연결 확인 중…</div>
+  </header>
+  <main>
+    <section class="grid">
+      {% for camera_id in cameras %}
+      <article class="card" id="card-{{ camera_id }}">
+        <div class="card-head">
+          <span class="name" id="name-{{ camera_id }}">{{ camera_id }}</span>
+          <span class="badge" id="badge-{{ camera_id }}">대기</span>
+        </div>
+        <img class="stream" src="/stream/{{ camera_id }}" alt="{{ camera_id }} stream">
+        <div class="meta" id="meta-{{ camera_id }}">카메라 시작 중…</div>
+      </article>
+      {% endfor %}
+    </section>
+    <section class="events">
+      <h2>최근 AI 이벤트</h2>
+      <div id="event-list"><div class="summary">아직 이벤트가 없습니다.</div></div>
+    </section>
+  </main>
+  <script>
+    async function refreshStatus() {
+      const response = await fetch('/api/status', {cache:'no-store'});
+      const data = await response.json();
+      const online = data.cameras.filter(camera => camera.online).length;
+      document.getElementById('summary').textContent = `${online}/${data.cameras.length} 카메라 온라인 · MQTT ${data.mqtt_connected ? '연결' : '대기'}`;
+      for (const camera of data.cameras) {
+        document.getElementById(`name-${camera.camera_id}`).textContent = camera.label;
+        const badge = document.getElementById(`badge-${camera.camera_id}`);
+        badge.className = 'badge' + (camera.person_count ? ' person' : camera.online ? ' online' : '');
+        badge.textContent = camera.person_count ? `사람 ${camera.person_count}명` : camera.online ? '온라인' : '오프라인';
+        document.getElementById(`meta-${camera.camera_id}`).textContent = camera.error || `${camera.source_type} · ${camera.ai_enabled ? 'AI 분석' : '감시 전용'} · ${camera.capture_fps} FPS`;
+      }
+    }
+    async function refreshEvents() {
+      const response = await fetch('/api/events', {cache:'no-store'});
+      const events = await response.json();
+      const list = document.getElementById('event-list');
+      if (!events.length) return;
+      list.innerHTML = events.slice(0, 15).map(event => {
+        const time = new Date(event.timestamp).toLocaleTimeString('ko-KR');
+        const label = event.event_type === 'person_detected' ? '사람 감지' : '사람 없음';
+        const confidence = event.confidence == null ? '' : ` · ${(event.confidence * 100).toFixed(0)}%`;
+        return `<div class="event"><time>${time}</time><strong>${event.camera_id}</strong><span>${label}${confidence}</span></div>`;
+      }).join('');
+    }
+    async function refresh() {
+      try { await Promise.all([refreshStatus(), refreshEvents()]); } catch (error) { document.getElementById('summary').textContent = '서버 연결 재시도 중…'; }
+    }
+    refresh(); setInterval(refresh, 1500);
+  </script>
+</body>
+</html>
+

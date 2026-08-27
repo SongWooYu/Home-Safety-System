@@ -1,0 +1,4 @@
+# Raspberry Pi OS의 Picamera2/OpenCV/Flask/Numpy/Paho-MQTT를 재사용합니다.
+# venv는 반드시 --system-site-packages 옵션으로 만드십시오.
+ncnn==1.0.20260114
+
