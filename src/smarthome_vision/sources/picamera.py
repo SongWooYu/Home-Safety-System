@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import cv2
 from picamera2 import Picamera2
 
 from .base import CameraSource
@@ -25,8 +24,8 @@ class PiCameraSource(CameraSource):
     def read(self):
         if self.camera is None:
             raise RuntimeError("Camera Module 3 is not open")
-        frame_rgb = self.camera.capture_array()
-        return cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+        frame_bgr = self.camera.capture_array()
+        return frame_bgr
 
     def close(self) -> None:
         if self.camera is not None:
