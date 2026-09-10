@@ -47,6 +47,13 @@ set_env() {
   sed -i "s|^$key=.*|$key=$escaped|" "$ENV_FILE"
 }
 
+ensure_env() {
+  local key="$1" value="$2"
+  if ! grep -q "^${key}=" "$ENV_FILE"; then
+    printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+  fi
+}
+
 if [[ ! -f "$ENV_FILE" ]]; then
   cp "$PI4_DIR/.env.example" "$ENV_FILE"
   chmod 0600 "$ENV_FILE"
@@ -54,6 +61,10 @@ if [[ ! -f "$ENV_FILE" ]]; then
   set_env ADMIN_TOKEN "$(openssl rand -hex 24)"
 fi
 
+
+ensure_env VISION_BASE_URL "http://192.168.1.20:8080"
+ensure_env VISION_CAMERAS "cam3,webcam,dahua"
+ensure_env VISION_STREAM_FPS "8"
 legacy_pg=""
 for candidate in smarthome_postgres postgres; do
   if docker inspect "$candidate" >/dev/null 2>&1; then

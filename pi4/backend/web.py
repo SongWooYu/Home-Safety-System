@@ -4,7 +4,9 @@ import hmac
 import json
 import os
 
-from flask import Flask, jsonify, render_template, request
+import requests
+
+from flask import Flask, Response, abort, jsonify, render_template, request, stream_with_context
 from paho.mqtt.publish import single
 
 from common import database_connection, wait_for_database
@@ -12,6 +14,16 @@ from common import database_connection, wait_for_database
 
 app = Flask(__name__, template_folder="templates")
 wait_for_database()
+VISION_BASE_URL = os.getenv("VISION_BASE_URL", "http://192.168.1.20:8080").rstrip("/")
+VISION_CAMERAS = tuple(
+    camera.strip()
+    for camera in os.getenv("VISION_CAMERAS", "cam3,webcam,dahua").split(",")
+    if camera.strip()
+)
+try:
+    VISION_STREAM_FPS = min(15.0, max(1.0, float(os.getenv("VISION_STREAM_FPS", "8"))))
+except ValueError:
+    VISION_STREAM_FPS = 8.0
 
 
 def json_value(value):
@@ -20,7 +32,54 @@ def json_value(value):
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", vision_cameras=VISION_CAMERAS)
+
+
+@app.get("/vision/stream/<camera_id>")
+def vision_stream(camera_id: str):
+    if camera_id not in VISION_CAMERAS:
+        abort(404)
+    try:
+        upstream = requests.get(
+            f"{VISION_BASE_URL}/stream/{camera_id}?fps={VISION_STREAM_FPS:g}",
+            stream=True,
+            timeout=(3, 15),
+        )
+        upstream.raise_for_status()
+    except requests.RequestException as exc:
+        return jsonify({"error": "Pi5 vision stream unavailable", "detail": str(exc)}), 502
+
+    @stream_with_context
+    def relay():
+        try:
+            for chunk in upstream.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    yield chunk
+        except requests.RequestException:
+            return
+        finally:
+            upstream.close()
+
+    response = Response(
+        relay(),
+        content_type=upstream.headers.get(
+            "Content-Type", "multipart/x-mixed-replace; boundary=frame"
+        ),
+    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
+
+
+@app.get("/api/vision/health")
+def vision_health():
+    try:
+        upstream = requests.get(f"{VISION_BASE_URL}/health", timeout=3)
+        upstream.raise_for_status()
+        return jsonify({"connected": True, "upstream": upstream.json()})
+    except (requests.RequestException, ValueError) as exc:
+        return jsonify({"connected": False, "error": str(exc)}), 503
 
 
 @app.get("/health")

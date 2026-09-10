@@ -2,8 +2,9 @@
 
 ## 역할
 
-Pi4는 AI 추론을 하지 않는다. Pi5가 보내는 작은 MQTT 메시지를 받아 영속 저장하고,
-낙상 상태를 경보로 바꾸며, 전시 관람자가 보는 최종 상태 화면을 제공한다.
+Pi4는 AI 추론을 하지 않는다. Pi5가 보내는 MQTT 메시지를 저장하고 낙상 상태를
+경보로 바꾼다. 전시 화면이 열려 있을 때는 Pi5에서 이미 AI 오버레이가 끝난
+MJPEG를 HTTP로 가져와 재인코딩 없이 최종 화면에 중계한다.
 
 ```text
 Pi5 세 카메라/AI
@@ -11,7 +12,7 @@ Pi5 세 카메라/AI
   -> Pi4 Mosquitto
        -> collector -> PostgreSQL
        -> automation -> safety state/alarm
-       -> web :8081 -> 상태·사건·경보 취소
+       -> web :8081 -> AI 영상 중계 + 상태·사건·경보 취소
 ```
 
 ## Git clone 후 새 설치
@@ -79,10 +80,49 @@ sudo ./pi4/scripts/install.sh --migrate-legacy /opt/smarthome
 | postgres | PostgreSQL 16 | 없음 | 내부 영속 저장 |
 | collector | Python 3.12 | 없음 | `home/#` 수집·정규화 |
 | automation | Python 3.12 | 없음 | 낙상 상태와 경보 토픽 |
-| web | Flask/Gunicorn | 8081 | 사용자 화면과 API |
+| web | Flask/Gunicorn | 8081 | AI 영상 프록시, 사용자 화면과 API |
 
 모든 컨테이너는 `restart: unless-stopped`다. Docker 서비스가 부팅 때 시작하면
 Pi4 재부팅 후 자동 복구된다.
+
+## AI 처리 영상 전달
+
+영상은 MQTT로 보내지 않는다. MQTT는 이벤트와 상태에만 사용한다. 실제 영상은
+다음 경로로 전달한다.
+
+```text
+카메라 -> Pi5 디코딩/BGR -> 객체·자세·얼굴 분석 -> 오버레이 JPEG
+       -> Pi5 /stream/<camera>?fps=8
+       -> Pi4 /vision/stream/<camera>
+       -> Pi4에 연결된 전시 브라우저
+```
+
+Pi4는 JPEG를 디코딩하거나 다시 인코딩하지 않고 HTTP chunk를 그대로 전달한다.
+따라서 AI 결과는 Pi5에서 하나만 만들고 Pi4 CPU는 네트워크 중계에만 사용한다.
+브라우저가 닫혀 있으면 Pi4도 upstream 스트림을 열지 않으므로 불필요한 상시
+트래픽이 없다.
+
+`pi4/.env` 설정:
+
+```dotenv
+VISION_BASE_URL=http://192.168.1.20:8080
+VISION_CAMERAS=cam3,webcam,dahua
+VISION_STREAM_FPS=8
+```
+
+기본 8 FPS는 전시 확인과 네트워크 부하 사이의 절충값이다. 더 부드러워야 하면
+10~12로 올릴 수 있지만 세 MJPEG 스트림의 트래픽이 함께 증가한다. 허용 범위는
+1~15 FPS다. Pi5 개발 대시보드의 원래 표시 FPS에는 영향을 주지 않는다.
+
+확인 경로:
+
+```bash
+curl -s http://192.168.1.10:8081/api/vision/health
+curl --max-time 2 http://192.168.1.10:8081/vision/stream/cam3 -o /dev/null
+```
+
+Pi4와 Pi5 사이 방화벽이 있다면 Pi4에서 Pi5의 TCP 8080으로 접근할 수 있어야
+한다. 외부 클라이언트가 Pi5 8080에 직접 접속할 필요는 없다.
 
 ## 데이터 모델
 
@@ -160,6 +200,7 @@ docker compose --env-file pi4/.env -f pi4/compose.yml stop
 ## Pi4 완료 기준
 
 - 세 카메라 retain 상태가 15초 이내 최신으로 표시됨
+- Pi4 화면에서 세 AI 오버레이 영상이 자동 재연결되며 표시됨
 - Pi5 사건이 DB에 정확히 한 번 저장됨
 - 낙상 확정 시 화면 경보와 alarm 토픽이 켜짐
 - 관리 키 취소 시 alarm 토픽이 꺼짐

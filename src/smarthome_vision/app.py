@@ -38,6 +38,10 @@ def create_app(pipeline: VisionPipeline) -> Flask:
     def stream(camera_id: str):
         if camera_id not in pipeline.workers:
             abort(404)
+        try:
+            stream_fps = min(30.0, max(1.0, float(request.args.get("fps", "25"))))
+        except ValueError:
+            stream_fps = 25.0
 
         def frames():
             while True:
@@ -47,7 +51,7 @@ def create_app(pipeline: VisionPipeline) -> Flask:
                     b"Content-Type: image/jpeg\r\n"
                     b"Cache-Control: no-store\r\n\r\n" + jpeg + b"\r\n"
                 )
-                time.sleep(0.04)
+                time.sleep(1.0 / stream_fps)
 
         response = Response(frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
