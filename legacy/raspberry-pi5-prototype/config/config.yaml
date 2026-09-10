@@ -1,0 +1,13 @@
+camera:
+  width: 640
+  height: 480
+  format: RGB888
+  warmup_sec: 2.0
+
+runtime:
+  loop_interval_sec: 0.1
+  status_interval_sec: 5.0
+
+path:
+  captures_dir: captures
+  logs_dir: logs
