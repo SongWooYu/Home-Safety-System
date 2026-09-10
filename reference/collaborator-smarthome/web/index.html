@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>스마트홈</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  body { font-family: sans-serif; background:#1a1a1a; color:#eee; margin:0; padding:20px; }
+  h1 { font-size:20px; margin:0 0 16px; }
+  #now { font-size:13px; color:#999; font-weight:400; margin-left:8px; }
+  .room { margin-bottom:28px; }
+  .room h2 { font-size:15px; color:#bbb; margin:0 0 10px; padding-bottom:6px; border-bottom:1px solid #333; }
+  .cards { display:flex; flex-wrap:wrap; gap:12px; }
+  .card { background:#2a2a2a; border-radius:10px; padding:14px 18px; min-width:130px; flex:1; }
+  .card.on { background:#1e3a2a; border:1px solid #4ade80; }
+  .card.open { background:#3a2a1e; border:1px solid #fb923c; }
+  .card.lit { background:#3a3a1e; border:1px solid #facc15; }
+  .card.cool { background:#1e2a3a; border:1px solid #60a5fa; }
+  .card.alert { background:#3a1e1e; border:1px solid #f87171; }
+  .label { font-size:12px; color:#999; }
+  .value { font-size:26px; font-weight:600; margin-top:4px; }
+  .time { font-size:11px; color:#666; margin-top:6px; }
+  .charts { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:20px; }
+  canvas { background:#2a2a2a; border-radius:10px; padding:10px; }
+  @media (max-width:800px) { .charts { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+
+<h1>스마트홈 모니터 <span id="now"></span></h1>
+<div id="rooms"></div>
+<div class="charts">
+  <canvas id="chartTemp" height="120"></canvas>
+  <canvas id="chartHumi" height="120"></canvas>
+</div>
+
+<script>
+const ROOM_NAMES = { entrance:"현관", livingroom:"거실", kitchen:"부엌", bathroom:"화장실" };
+const ROOM_ORDER = ["entrance", "livingroom", "kitchen", "bathroom"];
+
+const NAMES = {
+  door:"현관문", motion:"움직임", presence:"재실", distance:"거리",
+  temperature:"온도", humidity:"습도", brightness:"조도", gas:"가스",
+  light_cmd:"조명", aircon_cmd:"에어컨", curtain_cmd:"커튼",
+  fan_cmd:"환풍기", alarm_cmd:"경보"
+};
+const UNITS = { distance:" cm", temperature:"°C", humidity:"%" };
+const METRIC_ORDER = ["door","motion","presence","distance","temperature","humidity",
+                      "brightness","gas","light_cmd","aircon_cmd","curtain_cmd","fan_cmd","alarm_cmd"];
+
+function fmtDateTime(ts) {
+  return new Date(ts).toLocaleString("ko-KR",
+    { month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit" });
+}
+function fmtShort(ts) {
+  return new Date(ts).toLocaleString("ko-KR", { hour:"2-digit", minute:"2-digit" });
+}
+
+function cardClass(d) {
+  if (d.metric === "alarm_cmd") return d.value === "ON" ? "alert" : "";
+  if (d.metric === "gas") return d.value === "ON" ? "alert" : "";
+  if (d.metric === "aircon_cmd") return d.value === "ON" ? "cool" : "";
+  if (d.metric === "curtain_cmd") return d.value === "OPEN" ? "open" : "";
+  if (d.metric.endsWith("_cmd")) return d.value === "ON" ? "lit" : "";
+  if (d.value === "ON") return "on";
+  if (d.value === "OPEN") return "open";
+  return "";
+}
+
+function displayValue(d) {
+  if (d.metric === "door") return d.value === "CLOSED" ? "닫힘" : "열림";
+  if (d.metric === "curtain_cmd") return d.value === "OPEN" ? "열림" : "닫힘";
+  if (d.metric === "gas") return d.value === "ON" ? "감지!" : "정상";
+  if (d.metric.endsWith("_cmd")) return d.value === "ON" ? "켜짐" : "꺼짐";
+  return d.value + (UNITS[d.metric] || "");
+}
+
+async function loadCards() {
+  const res = await fetch("/api/latest");
+  const data = await res.json();
+  const byRoom = {};
+  for (const d of data) {
+    if (!NAMES[d.metric]) continue;
+    (byRoom[d.room] = byRoom[d.room] || []).push(d);
+  }
+  let html = "";
+  for (const room of ROOM_ORDER) {
+    const items = byRoom[room];
+    if (!items) continue;
+    items.sort((a, b) => METRIC_ORDER.indexOf(a.metric) - METRIC_ORDER.indexOf(b.metric));
+    html += `<div class="room"><h2>${ROOM_NAMES[room] || room}</h2><div class="cards">`;
+    html += items.map(d => `
+      <div class="card ${cardClass(d)}">
+        <div class="label">${NAMES[d.metric]}</div>
+        <div class="value">${displayValue(d)}</div>
+        <div class="time">${fmtDateTime(d.ts)}</div>
+      </div>`).join("");
+    html += `</div></div>`;
+  }
+  document.getElementById("rooms").innerHTML = html;
+}
+
+const charts = {};
+async function drawChart(id, datasets) {
+  const results = await Promise.all(
+    datasets.map(ds => fetch(`/api/history/${ds.room}/${ds.metric}`).then(r => r.json()))
+  );
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), {
+    type: "line",
+    data: {
+      labels: results[0].map(d => fmtShort(d.ts)),
+      datasets: datasets.map((ds, i) => ({
+        label: ds.label,
+        data: results[i].map(d => parseFloat(d.value)),
+        borderColor: ds.color, tension:0.3, pointRadius:0
+      }))
+    },
+    options: {
+      animation: false,
+      scales: { y:{ grid:{color:"#3a3a3a"}, ticks:{color:"#999"} },
+                x:{ grid:{color:"#3a3a3a"}, ticks:{color:"#999", maxTicksLimit:6} } },
+      plugins: { legend:{ labels:{color:"#eee"} } }
+    }
+  });
+}
+
+function loadCharts() {
+  drawChart("chartTemp", [
+    { room:"livingroom", metric:"temperature", label:"거실", color:"#f87171" },
+    { room:"kitchen",    metric:"temperature", label:"부엌", color:"#fb923c" },
+    { room:"bathroom",   metric:"temperature", label:"화장실", color:"#60a5fa" }
+  ]);
+  drawChart("chartHumi", [
+    { room:"livingroom", metric:"humidity", label:"거실", color:"#f87171" },
+    { room:"kitchen",    metric:"humidity", label:"부엌", color:"#fb923c" },
+    { room:"bathroom",   metric:"humidity", label:"화장실", color:"#60a5fa" }
+  ]);
+}
+
+function updateNow() {
+  document.getElementById("now").textContent = new Date().toLocaleString("ko-KR",
+    { year:"numeric", month:"long", day:"numeric", weekday:"short", hour:"2-digit", minute:"2-digit" });
+}
+
+function refresh() { loadCards(); loadCharts(); updateNow(); }
+refresh();
+setInterval(refresh, 5000);
+</script>
+
+</body>
+</html>

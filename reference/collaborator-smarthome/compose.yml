@@ -1,0 +1,61 @@
+name: smarthome
+
+services:
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: smarthome-mqtt
+    restart: unless-stopped
+
+    ports:
+      - "1883:1883"
+
+    volumes:
+      - ./mqtt/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt_data:/mosquitto/data
+
+    networks:
+      - smarthome-net
+
+
+  postgres:
+    image: postgres:16-bookworm
+    container_name: smarthome-postgres
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:5432:5432"
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    volumes:
+      - type: bind
+        source: /srv/smarthome-data/postgres
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    networks:
+      - smarthome-net
+
+
+networks:
+  smarthome-net:
+    driver: bridge
+
+
+volumes:
+  mqtt_data:
