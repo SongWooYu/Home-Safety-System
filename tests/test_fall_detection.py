@@ -25,6 +25,20 @@ def make_pose(box, horizontal=False, torso_visible=True):
     return {"confidence": 0.9, "box": box, "keypoints": points}
 
 
+def make_vertical_fall_pose():
+    pose = make_pose([48, 104, 118, 224])
+    points = pose["keypoints"]
+    for point in points:
+        point[1] = 165.0
+    points[5] = [65.0, 140.0, 0.9]
+    points[6] = [85.0, 140.0, 0.9]
+    points[11] = [68.0, 172.0, 0.9]
+    points[12] = [82.0, 172.0, 0.9]
+    points[15] = [68.0, 205.0, 0.9]
+    points[16] = [82.0, 205.0, 0.9]
+    return pose
+
+
 class FallTrackerTest(unittest.TestCase):
     def test_upright_to_lying_transition_confirms_and_recovers(self):
         tracker = FallTracker(confirm_seconds=1.2, recovery_seconds=2.0)
@@ -67,6 +81,17 @@ class FallTrackerTest(unittest.TestCase):
         self.assertEqual(result.pose_state, "sitting")
         self.assertEqual(result.fall_state, "normal")
         self.assertIsNone(result.event_type)
+
+    def test_rapid_vertical_collapse_confirms_front_back_fall(self):
+        tracker = FallTracker(confirm_seconds=1.2)
+        tracker.update([make_pose([45, 20, 105, 220])], (240, 320, 3), 0.0)
+
+        suspected = tracker.update([make_vertical_fall_pose()], (240, 320, 3), 0.6)
+        confirmed = tracker.update([make_vertical_fall_pose()], (240, 320, 3), 1.9)
+
+        self.assertEqual((suspected.pose_state, suspected.event_type), ("lying", "fall_suspected"))
+        self.assertEqual(confirmed.event_type, "fall_confirmed")
+        self.assertEqual(confirmed.metrics["motion_fall"], 1.0)
 
 
 if __name__ == "__main__":

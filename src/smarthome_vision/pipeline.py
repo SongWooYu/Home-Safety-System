@@ -81,6 +81,9 @@ class CameraWorker:
             transition_window=float(fall_config.get("transition_window", 3.0)),
             confirm_seconds=float(fall_config.get("confirm_seconds", 1.2)),
             recovery_seconds=float(fall_config.get("recovery_seconds", 2.0)),
+            motion_window_seconds=float(fall_config.get("motion_window_seconds", 1.5)),
+            motion_min_drop=float(fall_config.get("motion_min_drop", 0.10)),
+            motion_max_compression=float(fall_config.get("motion_max_compression", 0.78)),
         )
 
         self._lock = threading.Lock()

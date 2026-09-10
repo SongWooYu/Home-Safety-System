@@ -30,6 +30,9 @@ fall_detection:
   transition_window: 3.0
   confirm_seconds: 1.2
   recovery_seconds: 2.0
+  motion_window_seconds: 1.5
+  motion_min_drop: 0.10
+  motion_max_compression: 0.78
 
 
 cameras:
@@ -40,8 +43,8 @@ cameras:
     ai_enabled: true
     analysis_fps: 5
     fall_detection: true
-    width: 640
-    height: 480
+    width: 960
+    height: 540
     fps: 30
 
   - id: webcam
