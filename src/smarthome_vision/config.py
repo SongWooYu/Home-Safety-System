@@ -45,5 +45,10 @@ def load_config(path: str | Path) -> dict[str, Any]:
     model_path = Path(data["inference"]["model"])
     if not model_path.is_absolute():
         data["inference"]["model"] = str(project_root / model_path)
+    fall_config = data.get("fall_detection", {})
+    if fall_config.get("enabled", False):
+        pose_model_path = Path(fall_config["model"])
+        if not pose_model_path.is_absolute():
+            fall_config["model"] = str(project_root / pose_model_path)
     return data
 

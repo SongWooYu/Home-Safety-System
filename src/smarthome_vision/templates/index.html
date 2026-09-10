@@ -20,10 +20,13 @@
     .badge.online { background:rgba(54,209,124,.15); color:var(--green); }
     .badge.person { background:rgba(255,99,116,.15); color:var(--red); }
     .badge.object { background:rgba(255,189,89,.15); color:var(--orange); }
+    .card.fall { border-color:var(--red); box-shadow:0 0 0 1px rgba(255,99,116,.4); }
+    .badge.fall { background:rgba(255,99,116,.24); color:#ff8b98; font-weight:700; }
     .stream { width:100%; aspect-ratio:16/10; object-fit:contain; display:block; background:#05070a; }
     .meta { padding:10px 14px 14px; color:var(--muted); font-size:13px; min-height:44px; }
     .events { margin-top:22px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
     .events h2 { margin:0 0 12px; font-size:17px; }
+    .events h2 small { color:var(--muted); font-size:12px; font-weight:400; margin-left:8px; }
     #event-list { display:grid; gap:8px; }
     .event { display:flex; gap:12px; padding:9px 11px; background:#101620; border-radius:8px; }
     .event time { color:var(--muted); min-width:90px; }
@@ -50,7 +53,7 @@
       {% endfor %}
     </section>
     <section class="events">
-      <h2>최근 AI 이벤트</h2>
+      <h2>최근 AI 이벤트 <small>상태 변화만 기록 · MQTT 전송</small></h2>
       <div id="event-list"><div class="summary">아직 이벤트가 없습니다.</div></div>
     </section>
   </main>
@@ -95,16 +98,22 @@
       document.getElementById('summary').textContent = `${online}/${data.cameras.length} 카메라 온라인 · MQTT ${data.mqtt_connected ? '연결' : '대기'}`;
       for (const camera of data.cameras) {
         document.getElementById(`name-${camera.camera_id}`).textContent = camera.label;
+        const card = document.getElementById(`card-${camera.camera_id}`);
         const badge = document.getElementById(`badge-${camera.camera_id}`);
         const hasObjects = camera.object_count > 0;
-        badge.className = 'badge' + (camera.person_count ? ' person' : hasObjects ? ' object' : camera.online ? ' online' : '');
-        badge.textContent = camera.person_count
-          ? `사람 ${camera.person_count}명`
+        const isFall = camera.fall_state === 'confirmed';
+        const isSuspected = camera.fall_state === 'suspected';
+        card.classList.toggle('fall', isFall);
+        badge.className = 'badge' + (isFall ? ' fall' : isSuspected ? ' object' : camera.person_count ? ' person' : hasObjects ? ' object' : camera.online ? ' online' : '');
+        badge.textContent = isFall ? '낙상 감지'
+          : isSuspected ? '낙상 의심'
+          : camera.person_count ? `사람 ${camera.person_count}명`
           : hasObjects ? `객체 ${camera.object_count}개` : camera.online ? '온라인' : '오프라인';
         const objectSummary = Object.entries(camera.detected_objects || {})
           .map(([label, count]) => `${label} ${count}`)
           .join(', ');
-        const baseMeta = `${camera.source_type} · ${camera.ai_enabled ? 'AI 분석' : '감시 전용'} · ${camera.capture_fps} FPS`;
+        const poseSummary = camera.pose_enabled ? ` · 자세: ${camera.pose_state} · 낙상: ${camera.fall_state}` : '';
+        const baseMeta = `${camera.source_type} · ${camera.ai_enabled ? 'AI 분석' : '감시 전용'} · ${camera.capture_fps} FPS${poseSummary}`;
         document.getElementById(`meta-${camera.camera_id}`).textContent =
           camera.error || (objectSummary ? `${baseMeta} · 탐지: ${objectSummary}` : baseMeta);
       }
@@ -116,7 +125,14 @@
       if (!events.length) return;
       list.innerHTML = events.slice(0, 15).map(event => {
         const time = new Date(event.timestamp).toLocaleTimeString('ko-KR');
-        const label = event.event_type === 'person_detected' ? '사람 감지' : '사람 없음';
+        const eventLabels = {
+          person_detected: '사람 감지',
+          person_cleared: '사람 없음',
+          fall_suspected: '낙상 의심',
+          fall_confirmed: '낙상 감지 · 위험',
+          fall_cleared: '낙상 상태 해제',
+        };
+        const label = eventLabels[event.event_type] || event.event_type;
         const confidence = event.confidence == null ? '' : ` · ${(event.confidence * 100).toFixed(0)}%`;
         return `<div class="event"><time>${time}</time><strong>${event.camera_id}</strong><span>${label}${confidence}</span></div>`;
       }).join('');

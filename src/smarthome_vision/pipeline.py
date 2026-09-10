@@ -9,9 +9,21 @@ import cv2
 import numpy as np
 
 from .events import EventBus
-from .inference import NcnnObjectDetector
+from .fall_detection import FallTracker
+from .inference import NcnnObjectDetector, NcnnPoseEstimator
 from .sources import PiCameraSource, RtspSource, UsbCameraSource
 from .sources.base import CameraSource
+
+
+POSE_SKELETON = (
+    (5, 7), (7, 9),
+    (6, 8), (8, 10),
+    (5, 6),
+    (5, 11), (6, 12),
+    (11, 12),
+    (11, 13), (13, 15),
+    (12, 14), (14, 16),
+)
 
 
 @dataclass
@@ -24,6 +36,10 @@ class WorkerSnapshot:
     person_count: int
     object_count: int
     detected_objects: dict[str, int]
+    pose_enabled: bool
+    pose_state: str
+    fall_state: str
+    fall_confidence: float
     capture_fps: float
     last_frame_age: float | None
     error: str | None
@@ -35,8 +51,11 @@ class CameraWorker:
         camera_config: dict[str, Any],
         source: CameraSource,
         detector: NcnnObjectDetector,
+        pose_estimator: NcnnPoseEstimator | None,
         event_bus: EventBus,
         jpeg_quality: int,
+        fall_config: dict[str, Any],
+        status_publish_interval: float,
     ):
         self.config = camera_config
         self.camera_id = camera_config["id"]
@@ -44,21 +63,39 @@ class CameraWorker:
         self.source_type = camera_config["type"]
         self.source = source
         self.detector = detector
+        self.pose_estimator = pose_estimator
         self.event_bus = event_bus
         self.jpeg_quality = jpeg_quality
         self.ai_enabled = bool(camera_config.get("ai_enabled", False))
         self.analysis_interval = 1.0 / max(float(camera_config.get("analysis_fps", 3)), 0.1)
+        self.person_clear_seconds = float(camera_config.get("person_clear_seconds", 3.0))
+        self.pose_enabled = bool(
+            fall_config.get("enabled", False)
+            and pose_estimator is not None
+            and camera_config.get("fall_detection", True)
+        )
+        self.pose_interval = 1.0 / max(float(fall_config.get("analysis_fps", 1.5)), 0.1)
+        self.status_publish_interval = max(status_publish_interval, 1.0)
+        self.fall_tracker = FallTracker(
+            keypoint_confidence=float(fall_config.get("keypoint_confidence", 0.25)),
+            transition_window=float(fall_config.get("transition_window", 3.0)),
+            confirm_seconds=float(fall_config.get("confirm_seconds", 1.2)),
+            recovery_seconds=float(fall_config.get("recovery_seconds", 2.0)),
+        )
 
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._jpeg: bytes | None = None
         self._detections: list[dict] = []
+        self._poses: list[dict] = []
         self._online = False
         self._error: str | None = None
         self._last_frame_at: float | None = None
         self._capture_fps = 0.0
         self._person_present = False
+        self._person_seen_streak = 0
+        self._last_person_seen_at: float | None = None
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, name=f"camera-{self.camera_id}", daemon=True)
@@ -94,6 +131,8 @@ class CameraWorker:
         frame_counter = 0
         fps_started = time.monotonic()
         next_analysis = 0.0
+        next_pose_analysis = 0.0
+        next_status_publish = 0.0
 
         while not self._stop.is_set():
             frame = self.source.read()
@@ -109,6 +148,26 @@ class CameraWorker:
                 self._detections = self.detector.detect(frame)
                 next_analysis = now + self.analysis_interval
                 self._handle_person_state()
+
+            if self.pose_enabled and self.pose_estimator is not None and now >= next_pose_analysis:
+                self._poses = self.pose_estimator.estimate(frame)
+                pose_result = self.fall_tracker.update(self._poses, frame.shape, now)
+                next_pose_analysis = now + self.pose_interval
+                if pose_result.event_type:
+                    severity = "critical" if pose_result.event_type == "fall_confirmed" else "warning"
+                    if pose_result.event_type == "fall_cleared":
+                        severity = "normal"
+                    self.event_bus.emit(
+                        self.camera_id,
+                        pose_result.event_type,
+                        pose_result.confidence,
+                        {
+                            "severity": severity,
+                            "pose_state": pose_result.pose_state,
+                            "source_type": self.source_type,
+                            **pose_result.metrics,
+                        },
+                    )
 
             annotated = frame.copy()
             self._draw_overlay(annotated)
@@ -126,9 +185,28 @@ class CameraWorker:
                 self._error = None
                 self._last_frame_at = now
 
+            if now >= next_status_publish:
+                self.event_bus.publish_status(self.camera_id, self.status_dict())
+                next_status_publish = now + self.status_publish_interval
+
     def _handle_person_state(self) -> None:
         people = [item for item in self._detections if item["label"] == "person"]
-        person_present = bool(people)
+        now = time.monotonic()
+        if people:
+            self._person_seen_streak += 1
+            self._last_person_seen_at = now
+        else:
+            self._person_seen_streak = 0
+
+        person_present = self._person_present
+        if not self._person_present and self._person_seen_streak >= 2:
+            person_present = True
+        elif (
+            self._person_present
+            and self._last_person_seen_at is not None
+            and now - self._last_person_seen_at >= self.person_clear_seconds
+        ):
+            person_present = False
         if person_present == self._person_present:
             return
 
@@ -150,6 +228,18 @@ class CameraWorker:
         self.event_bus.publish_status(self.camera_id, self.status_dict())
 
     def _draw_overlay(self, frame: np.ndarray) -> None:
+        for pose in self._poses:
+            keypoints = pose["keypoints"]
+            for start, end in POSE_SKELETON:
+                if keypoints[start][2] < 0.25 or keypoints[end][2] < 0.25:
+                    continue
+                start_point = (int(keypoints[start][0]), int(keypoints[start][1]))
+                end_point = (int(keypoints[end][0]), int(keypoints[end][1]))
+                cv2.line(frame, start_point, end_point, (255, 210, 70), 2)
+            for x, y, confidence in keypoints:
+                if confidence >= 0.25:
+                    cv2.circle(frame, (int(x), int(y)), 3, (255, 230, 120), -1)
+
         for detection in self._detections:
             x1, y1, x2, y2 = detection["box"]
             confidence = detection["confidence"]
@@ -178,6 +268,21 @@ class CameraWorker:
             2,
         )
 
+        if self.pose_enabled and self.fall_tracker.fall_state != "normal":
+            is_confirmed = self.fall_tracker.fall_state == "confirmed"
+            fall_color = (30, 30, 255) if is_confirmed else (0, 165, 255)
+            fall_label = "FALL CONFIRMED" if is_confirmed else "FALL SUSPECTED"
+            cv2.rectangle(frame, (0, 42), (frame.shape[1], 82), fall_color, -1)
+            cv2.putText(
+                frame,
+                f"{fall_label} | {self.fall_tracker.confidence:.2f}",
+                (12, 70),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 255),
+                2,
+            )
+
     def jpeg(self) -> bytes | None:
         with self._lock:
             return self._jpeg
@@ -198,6 +303,10 @@ class CameraWorker:
                 person_count=detected_objects.get("person", 0),
                 object_count=sum(detected_objects.values()),
                 detected_objects=detected_objects,
+                pose_enabled=self.pose_enabled,
+                pose_state=self.fall_tracker.pose_state,
+                fall_state=self.fall_tracker.fall_state,
+                fall_confidence=round(self.fall_tracker.confidence, 3),
                 capture_fps=round(self._capture_fps, 1),
                 last_frame_age=round(age, 1) if age is not None else None,
                 error=self._error,
@@ -219,6 +328,16 @@ class VisionPipeline:
             nms_iou=float(inference.get("nms_iou", 0.45)),
             threads=int(inference.get("threads", 4)),
         )
+        fall_config = config.get("fall_detection", {})
+        self.pose_estimator: NcnnPoseEstimator | None = None
+        if fall_config.get("enabled", False):
+            self.pose_estimator = NcnnPoseEstimator(
+                model_dir=fall_config["model"],
+                input_size=int(fall_config.get("input_size", 320)),
+                confidence=float(fall_config.get("confidence", 0.35)),
+                nms_iou=float(fall_config.get("nms_iou", 0.45)),
+                threads=int(fall_config.get("threads", 2)),
+            )
         self.workers: dict[str, CameraWorker] = {}
         for camera in config["cameras"]:
             if not camera.get("enabled", True):
@@ -228,8 +347,11 @@ class VisionPipeline:
                 camera,
                 source,
                 self.detector,
+                self.pose_estimator,
                 self.event_bus,
                 int(config["server"].get("jpeg_quality", 80)),
+                fall_config,
+                float(config["mqtt"].get("status_interval_seconds", 5)),
             )
 
     @staticmethod

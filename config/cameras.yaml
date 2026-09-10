@@ -9,6 +9,7 @@ mqtt:
   port: 1883
   topic_events: home/vision/events
   topic_status_prefix: home/vision/status
+  status_interval_seconds: 5
 
 inference:
   backend: ncnn
@@ -17,6 +18,19 @@ inference:
   confidence: 0.35
   nms_iou: 0.45
   threads: 4
+fall_detection:
+  enabled: true
+  model: models/yolo11n-pose_ncnn_model
+  input_size: 320
+  confidence: 0.35
+  nms_iou: 0.45
+  threads: 2
+  analysis_fps: 1.5
+  keypoint_confidence: 0.25
+  transition_window: 3.0
+  confirm_seconds: 1.2
+  recovery_seconds: 2.0
+
 
 cameras:
   - id: cam3
@@ -25,6 +39,7 @@ cameras:
     enabled: true
     ai_enabled: true
     analysis_fps: 5
+    fall_detection: true
     width: 640
     height: 480
     fps: 30
@@ -35,6 +50,7 @@ cameras:
     enabled: true
     ai_enabled: true
     analysis_fps: 4
+    fall_detection: true
     device: /dev/v4l/by-id/usb-SunplusIT_Inc_ABKO_APC720_HD_WEBCAM_N2020120301-video-index0
     input_format: MJPG
     width: 1280
@@ -47,6 +63,7 @@ cameras:
     enabled: true
     ai_enabled: true
     analysis_fps: 4
+    fall_detection: true
     url: ${DAHUA_RTSP_URL}
     transport: tcp
 
