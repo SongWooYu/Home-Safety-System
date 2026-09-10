@@ -458,7 +458,7 @@ class VisionPipeline:
     def registered_faces(self) -> list[dict]:
         return self.face_registry.list_people() if self.face_registry is not None else []
 
-    def enroll_face(self, camera_id: str, name: str) -> dict:
+    def enroll_face(self, camera_id: str, name: str, view: str = "front") -> dict:
         if self.face_registry is None:
             raise RuntimeError(self.face_error or "얼굴 인식 기능을 사용할 수 없습니다.")
         worker = self.workers.get(camera_id)
@@ -471,7 +471,7 @@ class VisionPipeline:
             if frame is not None:
                 frames.append(frame)
             time.sleep(0.25)
-        return self.face_registry.enroll(name, frames)
+        return self.face_registry.enroll(name, frames, view)
 
     def delete_face(self, person_id: str) -> bool:
         return self.face_registry is not None and self.face_registry.delete(person_id)

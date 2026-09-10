@@ -85,6 +85,7 @@ def create_app(pipeline: VisionPipeline) -> Flask:
             person = pipeline.enroll_face(
                 str(payload.get("camera_id", "")),
                 str(payload.get("name", "")),
+                str(payload.get("view", "front")),
             )
             return jsonify(person), 201
         except ValueError as exc:

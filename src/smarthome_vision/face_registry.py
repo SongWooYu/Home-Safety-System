@@ -17,6 +17,8 @@ class FaceRegistryError(ValueError):
 class FaceRegistry:
     """Local YuNet + SFace registry that stores embeddings, not face photos."""
 
+    VALID_VIEWS = {"front", "left", "right"}
+
     def __init__(
         self,
         detector_model: str,
@@ -55,14 +57,18 @@ class FaceRegistry:
                     "id": person["id"],
                     "name": person["name"],
                     "updated_at": person["updated_at"],
+                    "views": [template["view"] for template in person["templates"]],
                 }
                 for person in self._people
             ]
 
-    def enroll(self, name: str, frames: list[np.ndarray]) -> dict:
+    def enroll(self, name: str, frames: list[np.ndarray], view: str = "front") -> dict:
         clean_name = " ".join(str(name).split())
+        clean_view = str(view).strip().lower()
         if not clean_name or len(clean_name) > 40 or any(ord(char) < 32 for char in clean_name):
             raise FaceRegistryError("이름은 1~40자로 입력하세요.")
+        if clean_view not in self.VALID_VIEWS:
+            raise FaceRegistryError("촬영 방향은 정면, 왼쪽, 오른쪽 중 하나여야 합니다.")
 
         features: list[np.ndarray] = []
         with self._lock:
@@ -76,12 +82,17 @@ class FaceRegistry:
 
             if len(features) < 3:
                 raise FaceRegistryError(
-                    "한 명의 얼굴을 충분히 찾지 못했습니다. 카메라를 정면으로 보고 다시 등록하세요."
+                    "한 명의 얼굴을 충분히 찾지 못했습니다. 얼굴 방향과 조명을 확인해 다시 등록하세요."
                 )
 
             embedding = np.mean(np.stack(features), axis=0)
             embedding /= max(float(np.linalg.norm(embedding)), 1e-8)
             now = datetime.now(timezone.utc).isoformat()
+            template = {
+                "view": clean_view,
+                "embedding": embedding.astype(float).tolist(),
+                "updated_at": now,
+            }
             existing = next(
                 (person for person in self._people if person["name"].casefold() == clean_name.casefold()),
                 None,
@@ -90,20 +101,26 @@ class FaceRegistry:
                 existing = {
                     "id": uuid.uuid4().hex[:12],
                     "name": clean_name,
-                    "embedding": embedding.astype(float).tolist(),
+                    "templates": [template],
                     "updated_at": now,
                 }
                 self._people.append(existing)
             else:
                 existing["name"] = clean_name
-                existing["embedding"] = embedding.astype(float).tolist()
+                existing["templates"] = [
+                    item for item in existing["templates"] if item["view"] != clean_view
+                ]
+                existing["templates"].append(template)
                 existing["updated_at"] = now
+                existing.pop("embedding", None)
             self._save()
             return {
                 "id": existing["id"],
                 "name": existing["name"],
                 "updated_at": existing["updated_at"],
                 "samples": len(features),
+                "view": clean_view,
+                "views": [item["view"] for item in existing["templates"]],
             }
 
     def delete(self, person_id: str) -> bool:
@@ -118,12 +135,13 @@ class FaceRegistry:
     def identify(self, frame: np.ndarray) -> list[dict]:
         with self._lock:
             faces = self._detect(frame)
-            people = [
+            templates = [
                 (
                     person,
-                    np.asarray(person["embedding"], dtype=np.float32),
+                    np.asarray(template["embedding"], dtype=np.float32),
                 )
                 for person in self._people
+                for template in person["templates"]
             ]
             results: list[dict] = []
             for face in faces[:5]:
@@ -132,7 +150,7 @@ class FaceRegistry:
                     continue
                 best_person = None
                 best_score = -1.0
-                for person, embedding in people:
+                for person, embedding in templates:
                     score = float(np.dot(feature, embedding))
                     if score > best_score:
                         best_score = score
@@ -195,18 +213,42 @@ class FaceRegistry:
             return
         try:
             payload = json.loads(self.database_path.read_text(encoding="utf-8"))
-            people = payload.get("people", [])
-            self._people = [
-                person
-                for person in people
-                if {"id", "name", "embedding", "updated_at"} <= set(person)
-            ]
+            loaded: list[dict] = []
+            for person in payload.get("people", []):
+                if not {"id", "name", "updated_at"} <= set(person):
+                    continue
+                templates = person.get("templates")
+                if not isinstance(templates, list) and isinstance(person.get("embedding"), list):
+                    templates = [
+                        {
+                            "view": "legacy",
+                            "embedding": person["embedding"],
+                            "updated_at": person["updated_at"],
+                        }
+                    ]
+                valid_templates = [
+                    template
+                    for template in (templates or [])
+                    if isinstance(template, dict)
+                    and isinstance(template.get("embedding"), list)
+                    and isinstance(template.get("view"), str)
+                ]
+                if valid_templates:
+                    loaded.append(
+                        {
+                            "id": person["id"],
+                            "name": person["name"],
+                            "updated_at": person["updated_at"],
+                            "templates": valid_templates,
+                        }
+                    )
+            self._people = loaded
         except (OSError, ValueError, TypeError):
             self._people = []
 
     def _save(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"version": 1, "people": self._people}
+        payload = {"version": 2, "people": self._people}
         temporary = self.database_path.with_suffix(".tmp")
         temporary.write_text(
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")),

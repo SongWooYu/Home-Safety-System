@@ -1,0 +1,58 @@
+name: home-safety-pi4
+
+x-backend: &backend
+  build:
+    context: ./backend
+  env_file:
+    - .env
+  restart: unless-stopped
+  depends_on:
+    mqtt:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+
+services:
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./mqtt/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./runtime/mqtt/data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -t '$$SYS/broker/version' -C 1 -W 3 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ${POSTGRES_DATA_DIR:-/srv/smarthome-data/postgres}:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  collector:
+    <<: *backend
+    command: ["python", "-m", "collector"]
+
+  automation:
+    <<: *backend
+    command: ["python", "-m", "automation"]
+
+  web:
+    <<: *backend
+    command: ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "2", "web:app"]
+    ports:
+      - "${WEB_PORT:-8081}:8080"

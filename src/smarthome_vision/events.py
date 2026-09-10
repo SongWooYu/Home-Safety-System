@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import uuid
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
@@ -72,7 +73,8 @@ class EventBus:
         details: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         event = {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
+            "event_id": uuid.uuid4().hex,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "camera_id": camera_id,
             "event_type": event_type,

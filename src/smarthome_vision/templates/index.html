@@ -34,7 +34,7 @@
     .face-admin { margin-top:22px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
     .face-admin h2 { margin:0 0 12px; font-size:17px; }
     .face-admin h2 small { color:var(--muted); font-size:12px; font-weight:400; margin-left:8px; }
-    .face-form { display:grid; grid-template-columns:minmax(160px,1fr) minmax(140px,180px) minmax(160px,1fr) auto; gap:9px; margin-bottom:10px; }
+    .face-form { display:grid; grid-template-columns:minmax(160px,1fr) minmax(140px,180px) minmax(110px,140px) minmax(160px,1fr) auto; gap:9px; margin-bottom:10px; }
     input, select, button { border:1px solid var(--line); border-radius:8px; background:#101620; color:var(--text); padding:9px 11px; font:inherit; }
     button { cursor:pointer; background:#245da8; border-color:#3271c6; }
     button:disabled { opacity:.6; cursor:wait; }
@@ -71,6 +71,11 @@
           {% for camera_id in face_cameras %}
           <option value="{{ camera_id }}">{{ camera_id }}</option>
           {% endfor %}
+        </select>
+        <select id="face-view" required>
+          <option value="front">정면</option>
+          <option value="left">왼쪽</option>
+          <option value="right">오른쪽</option>
         </select>
         <input id="face-name" maxlength="40" placeholder="등록할 이름" required>
         <button id="face-submit" type="submit">얼굴 등록</button>
@@ -120,6 +125,7 @@
     const faceToken = document.getElementById('face-token');
     const faceStatus = document.getElementById('face-status');
     const faceList = document.getElementById('face-list');
+    const viewLabels = {front:'정면', left:'왼쪽', right:'오른쪽', legacy:'기존 정면'};
     faceToken.value = sessionStorage.getItem('faceAdminToken') || '';
 
     async function faceRequest(url, options = {}) {
@@ -144,7 +150,8 @@
         const row = document.createElement('div');
         row.className = 'face-row';
         const name = document.createElement('span');
-        name.textContent = person.name;
+        const views = (person.views || []).map(view => viewLabels[view] || view).join(', ');
+        name.textContent = views ? `${person.name} · ${views}` : person.name;
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'danger';
@@ -187,17 +194,17 @@
       const button = document.getElementById('face-submit');
       const cameraId = document.getElementById('face-camera').value;
       const name = document.getElementById('face-name').value.trim();
+      const view = document.getElementById('face-view').value;
       button.disabled = true;
       button.textContent = '얼굴 수집 중…';
-      faceStatus.textContent = '한 명만 카메라를 정면으로 봐주세요.';
+      faceStatus.textContent = `한 명만 카메라를 ${viewLabels[view]} 방향으로 봐주세요.`;
       try {
         const person = await faceRequest('/api/faces/enroll', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({camera_id:cameraId, name}),
+          body:JSON.stringify({camera_id:cameraId, name, view}),
         });
-        faceStatus.textContent = `${person.name} 등록 완료 · 유효 사진 ${person.samples}장`;
-        document.getElementById('face-name').value = '';
+        faceStatus.textContent = `${person.name} ${viewLabels[person.view]} 등록 완료 · 유효 사진 ${person.samples}장 · 다음 방향도 같은 이름으로 등록하세요.`;
         await refreshFaces();
       } catch (error) {
         faceStatus.textContent = error.message;
