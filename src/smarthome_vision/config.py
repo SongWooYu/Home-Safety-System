@@ -50,5 +50,11 @@ def load_config(path: str | Path) -> dict[str, Any]:
         pose_model_path = Path(fall_config["model"])
         if not pose_model_path.is_absolute():
             fall_config["model"] = str(project_root / pose_model_path)
+    face_config = data.get("face_recognition", {})
+    if face_config.get("enabled", False):
+        for key in ("detector_model", "recognizer_model", "database"):
+            value_path = Path(face_config[key])
+            if not value_path.is_absolute():
+                face_config[key] = str(project_root / value_path)
     return data
 

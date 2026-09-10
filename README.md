@@ -15,7 +15,7 @@ Raspberry Pi 5에서 서로 다른 카메라 입력을 하나의 AI 분석 파�
 
 ## 처리 흐름
 
-카메라는 한 번만 캡처합니다. 캡처 프레임은 개발용 웹 MJPEG 출력과 YOLO11n NCNN 객체 검출로 분기됩니다. 화면에는 COCO 80개 클래스가 표시되며, 사람의 등장/퇴장과 낙상 상태 변화는 웹 이벤트와 MQTT `home/vision/events`로 전달됩니다. 출력 클래스 필터만으로 모델 자체가 경량화되지는 않습니다.
+카메라는 한 번만 캡처합니다. 캡처 프레임은 개발용 웹 MJPEG 출력과 YOLO11n NCNN 객체 검출로 분기됩니다. 모델은 COCO 클래스를 계산하지만 현재 파이프라인은 사람 결과만 남겨 화면·상태·MQTT에 사용합니다. 출력 필터만으로 모델 자체가 경량화되지는 않습니다.
 
 ## 이벤트와 낙상 MVP
 
@@ -26,6 +26,22 @@ Raspberry Pi 5에서 서로 다른 카메라 입력을 하나의 AI 분석 파�
 - `fall_suspected`가 1.2초 지속되면 `fall_confirmed`를 발행합니다.
 - 이 기능은 전시용 위험 징후 감지이며 의료 진단 기능이 아닙니다.
 
+
+## 얼굴 등록
+
+공식 OpenCV YuNet/SFace 모델을 설치합니다.
+
+```bash
+./scripts/setup_face_models.sh
+```
+
+`.env`의 `FACE_ADMIN_TOKEN` 관리 키를 대시보드에 입력한 뒤 Camera Module 3 또는 웹캠으로 등록합니다. 한 명만 정면을 보고 등록해야 하며, 원본 얼굴 사진은 저장하지 않고 `data/faces.json`에 특징 벡터만 저장합니다. 일반 상태 화면에는 실제 이름 대신 등록자/미등록자 여부만 표시합니다.
+
+관리 키 확인:
+
+```bash
+sed -n 's/^FACE_ADMIN_TOKEN=//p' /home/pi/Home-Safety-System/.env
+```
 ## 실행
 
 ```bash
@@ -42,13 +58,20 @@ python -m smarthome_vision.app
 비밀번호를 Git에 기록하지 않습니다. `/home/pi/Home-Safety-System/.env`에 다음 값을 설정합니다.
 
 ```bash
-DAHUA_RTSP_URL=rtsp://USER:PASSWORD@192.168.1.64:554/cam/realmonitor?channel=1&subtype=1
+DAHUA_RTSP_URL=rtsp://USER:PASSWORD@192.168.1.64:554/cam/realmonitor?channel=1&subtype=0
 ```
 
 ## 주요 API
 
 - `/api/status`: 카메라·AI·MQTT 상태
 - `/api/events`: 최근 사람 감지 이벤트
+- `/api/faces`: 관리 키가 필요한 등록자 목록
+- `/api/faces/enroll`: Camera Module 3/웹캠 얼굴 등록
+- `/api/faces/<person_id>`: 등록 삭제
 - `/stream/<camera_id>`: MJPEG 영상
 - `/health`: 서비스 상태
+
+## Raspberry Pi 4
+
+중앙 MQTT·이벤트 저장·경보·최종 서비스 화면 작업은 [docs/PI4_NEXT_STEPS.md](docs/PI4_NEXT_STEPS.md)에 정리했습니다.
 

@@ -31,6 +31,17 @@
     .event { display:flex; gap:12px; padding:9px 11px; background:#101620; border-radius:8px; }
     .event time { color:var(--muted); min-width:90px; }
     .event strong { color:var(--blue); }
+    .face-admin { margin-top:22px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
+    .face-admin h2 { margin:0 0 12px; font-size:17px; }
+    .face-admin h2 small { color:var(--muted); font-size:12px; font-weight:400; margin-left:8px; }
+    .face-form { display:grid; grid-template-columns:minmax(160px,1fr) minmax(140px,180px) minmax(160px,1fr) auto; gap:9px; margin-bottom:10px; }
+    input, select, button { border:1px solid var(--line); border-radius:8px; background:#101620; color:var(--text); padding:9px 11px; font:inherit; }
+    button { cursor:pointer; background:#245da8; border-color:#3271c6; }
+    button:disabled { opacity:.6; cursor:wait; }
+    button.danger { background:#51212a; border-color:#7b2c38; padding:5px 10px; }
+    #face-list { display:grid; gap:7px; margin-top:10px; }
+    .face-row { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:#101620; border-radius:8px; }
+    @media (max-width:800px) { .face-form{grid-template-columns:1fr 1fr} }
     @media (max-width:600px) { .grid{grid-template-columns:1fr} main{padding:12px} header{padding:16px} }
   </style>
 </head>
@@ -51,6 +62,21 @@
         <div class="meta" id="meta-{{ camera_id }}">카메라 시작 중…</div>
       </article>
       {% endfor %}
+    </section>
+    <section class="face-admin">
+      <h2>등록자 관리 <small>Camera Module 3 또는 웹캠 · 특징 벡터만 로컬 저장</small></h2>
+      <form id="face-form" class="face-form">
+        <input id="face-token" type="password" autocomplete="off" placeholder="관리 키" required>
+        <select id="face-camera" required>
+          {% for camera_id in face_cameras %}
+          <option value="{{ camera_id }}">{{ camera_id }}</option>
+          {% endfor %}
+        </select>
+        <input id="face-name" maxlength="40" placeholder="등록할 이름" required>
+        <button id="face-submit" type="submit">얼굴 등록</button>
+      </form>
+      <div id="face-status" class="summary">관리 키를 입력하세요.</div>
+      <div id="face-list"></div>
     </section>
     <section class="events">
       <h2>최근 AI 이벤트 <small>상태 변화만 기록 · MQTT 전송</small></h2>
@@ -91,11 +117,101 @@
       if (document.visibilityState === 'visible') restartAllStreams();
     }, 10 * 60 * 1000);
 
+    const faceToken = document.getElementById('face-token');
+    const faceStatus = document.getElementById('face-status');
+    const faceList = document.getElementById('face-list');
+    faceToken.value = sessionStorage.getItem('faceAdminToken') || '';
+
+    async function faceRequest(url, options = {}) {
+      const token = faceToken.value.trim();
+      const headers = {...(options.headers || {}), 'X-Face-Admin-Token': token};
+      const response = await fetch(url, {...options, headers, cache:'no-store'});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '요청에 실패했습니다.');
+      return data;
+    }
+
+    function renderFaceList(people) {
+      faceList.replaceChildren();
+      if (!people.length) {
+        const empty = document.createElement('span');
+        empty.className = 'summary';
+        empty.textContent = '등록된 사람이 없습니다.';
+        faceList.append(empty);
+        return;
+      }
+      for (const person of people) {
+        const row = document.createElement('div');
+        row.className = 'face-row';
+        const name = document.createElement('span');
+        name.textContent = person.name;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'danger';
+        button.textContent = '삭제';
+        button.addEventListener('click', async () => {
+          if (!confirm(`${person.name} 등록을 삭제할까요?`)) return;
+          try {
+            await faceRequest(`/api/faces/${encodeURIComponent(person.id)}`, {method:'DELETE'});
+            faceStatus.textContent = `${person.name} 등록을 삭제했습니다.`;
+            await refreshFaces();
+          } catch (error) {
+            faceStatus.textContent = error.message;
+          }
+        });
+        row.append(name, button);
+        faceList.append(row);
+      }
+    }
+
+    async function refreshFaces() {
+      if (!faceToken.value.trim()) {
+        faceStatus.textContent = '등록·목록 확인을 위해 관리 키를 입력하세요.';
+        renderFaceList([]);
+        return;
+      }
+      sessionStorage.setItem('faceAdminToken', faceToken.value.trim());
+      try {
+        const data = await faceRequest('/api/faces');
+        faceStatus.textContent = data.enabled ? `등록자 ${data.people.length}명` : (data.error || '얼굴 인식 비활성');
+        renderFaceList(data.people);
+      } catch (error) {
+        faceStatus.textContent = error.message;
+        renderFaceList([]);
+      }
+    }
+
+    faceToken.addEventListener('change', refreshFaces);
+    document.getElementById('face-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = document.getElementById('face-submit');
+      const cameraId = document.getElementById('face-camera').value;
+      const name = document.getElementById('face-name').value.trim();
+      button.disabled = true;
+      button.textContent = '얼굴 수집 중…';
+      faceStatus.textContent = '한 명만 카메라를 정면으로 봐주세요.';
+      try {
+        const person = await faceRequest('/api/faces/enroll', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({camera_id:cameraId, name}),
+        });
+        faceStatus.textContent = `${person.name} 등록 완료 · 유효 사진 ${person.samples}장`;
+        document.getElementById('face-name').value = '';
+        await refreshFaces();
+      } catch (error) {
+        faceStatus.textContent = error.message;
+      } finally {
+        button.disabled = false;
+        button.textContent = '얼굴 등록';
+      }
+    });
+
     async function refreshStatus() {
       const response = await fetch('/api/status', {cache:'no-store'});
       const data = await response.json();
       const online = data.cameras.filter(camera => camera.online).length;
-      document.getElementById('summary').textContent = `${online}/${data.cameras.length} 카메라 온라인 · MQTT ${data.mqtt_connected ? '연결' : '대기'}`;
+      document.getElementById('summary').textContent = `${online}/${data.cameras.length} 카메라 온라인 · MQTT ${data.mqtt_connected ? '연결' : '대기'} · 등록자 ${data.registered_people}명`;
       for (const camera of data.cameras) {
         document.getElementById(`name-${camera.camera_id}`).textContent = camera.label;
         const card = document.getElementById(`card-${camera.camera_id}`);
@@ -104,18 +220,18 @@
         const isFall = camera.fall_state === 'confirmed';
         const isSuspected = camera.fall_state === 'suspected';
         card.classList.toggle('fall', isFall);
-        badge.className = 'badge' + (isFall ? ' fall' : isSuspected ? ' object' : camera.person_count ? ' person' : hasObjects ? ' object' : camera.online ? ' online' : '');
+        badge.className = 'badge' + (isFall ? ' fall' : isSuspected ? ' object' : camera.person_count ? ' person' : camera.online ? ' online' : '');
         badge.textContent = isFall ? '낙상 감지'
           : isSuspected ? '낙상 의심'
           : camera.person_count ? `사람 ${camera.person_count}명`
-          : hasObjects ? `객체 ${camera.object_count}개` : camera.online ? '온라인' : '오프라인';
-        const objectSummary = Object.entries(camera.detected_objects || {})
-          .map(([label, count]) => `${label} ${count}`)
-          .join(', ');
+          : camera.online ? '온라인' : '오프라인';
         const poseSummary = camera.pose_enabled ? ` · 자세: ${camera.pose_state} · 낙상: ${camera.fall_state}` : '';
         const baseMeta = `${camera.source_type} · ${camera.ai_enabled ? 'AI 분석' : '감시 전용'} · ${camera.capture_fps} FPS${poseSummary}`;
+        const faceSummary = camera.known_faces
+          ? ` · 등록자 ${camera.known_faces}명`
+          : camera.unknown_faces ? ` · 미등록 얼굴 ${camera.unknown_faces}명` : '';
         document.getElementById(`meta-${camera.camera_id}`).textContent =
-          camera.error || (objectSummary ? `${baseMeta} · 탐지: ${objectSummary}` : baseMeta);
+          camera.error || `${baseMeta}${faceSummary}`;
       }
     }
     async function refreshEvents() {
@@ -140,7 +256,9 @@
     async function refresh() {
       try { await Promise.all([refreshStatus(), refreshEvents()]); } catch (error) { document.getElementById('summary').textContent = '서버 연결 재시도 중…'; }
     }
-    refresh(); setInterval(refresh, 1500);
+    refresh();
+    refreshFaces();
+    setInterval(refresh, 1500);
   </script>
 </body>
 </html>

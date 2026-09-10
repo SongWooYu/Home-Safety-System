@@ -18,6 +18,17 @@ inference:
   confidence: 0.35
   nms_iou: 0.45
   threads: 4
+
+face_recognition:
+  enabled: true
+  admin_token: ${FACE_ADMIN_TOKEN}
+  detector_model: runtime/models/face/face_detection_yunet_2023mar.onnx
+  recognizer_model: runtime/models/face/face_recognition_sface_2021dec.onnx
+  database: data/faces.json
+  analysis_fps: 0.5
+  match_threshold: 0.45
+  detection_width: 640
+  min_face_size: 70
 fall_detection:
   enabled: true
   model: models/yolo11n-pose_ncnn_model
@@ -30,9 +41,6 @@ fall_detection:
   transition_window: 3.0
   confirm_seconds: 1.2
   recovery_seconds: 2.0
-  motion_window_seconds: 1.5
-  motion_min_drop: 0.10
-  motion_max_compression: 0.78
 
 
 cameras:
@@ -43,6 +51,7 @@ cameras:
     ai_enabled: true
     analysis_fps: 5
     fall_detection: true
+    face_enrollment: true
     width: 960
     height: 540
     fps: 30
@@ -54,6 +63,7 @@ cameras:
     ai_enabled: true
     analysis_fps: 4
     fall_detection: true
+    face_enrollment: true
     device: /dev/v4l/by-id/usb-SunplusIT_Inc_ABKO_APC720_HD_WEBCAM_N2020120301-video-index0
     input_format: MJPG
     width: 1280

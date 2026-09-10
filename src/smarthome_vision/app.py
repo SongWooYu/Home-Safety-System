@@ -1,10 +1,11 @@
 from __future__ import annotations
+import hmac
 
 import argparse
 import time
 from pathlib import Path
 
-from flask import Flask, Response, abort, jsonify, render_template
+from flask import Flask, Response, abort, jsonify, render_template, request
 
 from .config import load_config
 from .pipeline import VisionPipeline
@@ -13,9 +14,25 @@ from .pipeline import VisionPipeline
 def create_app(pipeline: VisionPipeline) -> Flask:
     app = Flask(__name__, template_folder="templates")
 
+    def face_admin_authorized() -> bool:
+        expected = str(
+            pipeline.config.get("face_recognition", {}).get("admin_token", "")
+        )
+        supplied = request.headers.get("X-Face-Admin-Token", "")
+        return bool(expected and supplied and hmac.compare_digest(expected, supplied))
+
     @app.get("/")
     def index():
-        return render_template("index.html", cameras=list(pipeline.workers.keys()))
+        face_cameras = [
+            camera_id
+            for camera_id, worker in pipeline.workers.items()
+            if worker.face_enrollment
+        ]
+        return render_template(
+            "index.html",
+            cameras=list(pipeline.workers.keys()),
+            face_cameras=face_cameras,
+        )
 
     @app.get("/stream/<camera_id>")
     def stream(camera_id: str):
@@ -46,6 +63,42 @@ def create_app(pipeline: VisionPipeline) -> Flask:
     @app.get("/api/events")
     def events():
         return jsonify(pipeline.event_bus.recent())
+
+    @app.get("/api/faces")
+    def faces():
+        if not face_admin_authorized():
+            return jsonify({"error": "얼굴 관리 키가 필요합니다."}), 401
+        return jsonify(
+            {
+                "enabled": pipeline.face_registry is not None,
+                "error": pipeline.face_error,
+                "people": pipeline.registered_faces(),
+            }
+        )
+
+    @app.post("/api/faces/enroll")
+    def enroll_face():
+        if not face_admin_authorized():
+            return jsonify({"error": "얼굴 관리 키가 필요합니다."}), 401
+        payload = request.get_json(silent=True) or {}
+        try:
+            person = pipeline.enroll_face(
+                str(payload.get("camera_id", "")),
+                str(payload.get("name", "")),
+            )
+            return jsonify(person), 201
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 503
+
+    @app.delete("/api/faces/<person_id>")
+    def delete_face(person_id: str):
+        if not face_admin_authorized():
+            return jsonify({"error": "얼굴 관리 키가 필요합니다."}), 401
+        if not pipeline.delete_face(person_id):
+            return jsonify({"error": "등록자를 찾을 수 없습니다."}), 404
+        return jsonify({"deleted": True})
 
     @app.get("/health")
     def health():
