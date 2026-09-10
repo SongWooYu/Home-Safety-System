@@ -1,4 +1,4 @@
-from .ncnn_detector import NcnnPersonDetector
+from .ncnn_detector import NcnnObjectDetector
 
-__all__ = ["NcnnPersonDetector"]
+__all__ = ["NcnnObjectDetector"]
 

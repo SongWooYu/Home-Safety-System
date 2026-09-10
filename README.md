@@ -1,16 +1,20 @@
 # Home Safety Vision Node
 
-Raspberry Pi 5에서 서로 다른 카메라 입력을 하나의 웹 화면과 AI 이벤트 형식으로 통합하는 Vision Node입니다.
+Raspberry Pi 5에서 서로 다른 카메라 입력을 하나의 AI 분석 파이프라인과 이벤트 형식으로 통합하는 Vision Node입니다.
 
 ## 현재 입력
 
 - Camera Module 3: Picamera2/libcamera
 - ABKO APC720: V4L2 MJPEG
 - Dahua IP Camera: RTSP (환경변수 `DAHUA_RTSP_URL` 필요)
+## 개발 대시보드
+
+`:8080` 웹 화면은 최종 사용자 서비스가 아닙니다. 카메라별 원본 입력, NCNN 객체 탐지 결과, FPS, 연결 상태와 사람 이벤트를 개발 중 검증하기 위한 관제 화면입니다. 브라우저 절전·탭 복귀·네트워크 복구 시 MJPEG 스트림을 자동으로 다시 연결합니다.
+
 
 ## 처리 흐름
 
-카메라는 한 번만 캡처합니다. 캡처 프레임은 웹 MJPEG 출력과 NCNN 사람 검출로 분기됩니다. 사람의 등장/퇴장 이벤트는 웹 API와 MQTT `home/vision/events`로 전달됩니다.
+카메라는 한 번만 캡처합니다. 캡처 프레임은 개발용 웹 MJPEG 출력과 YOLO11n NCNN 객체 검출로 분기됩니다. 화면에는 COCO 80개 클래스가 표시되며, 사람의 등장/퇴장만 웹 이벤트와 MQTT `home/vision/events`로 전달됩니다. 출력 클래스 필터만으로 모델 자체가 경량화되지는 않습니다.
 
 ## 실행
 

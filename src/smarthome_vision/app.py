@@ -32,7 +32,12 @@ def create_app(pipeline: VisionPipeline) -> Flask:
                 )
                 time.sleep(0.04)
 
-        return Response(frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
+        response = Response(frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        response.headers["X-Accel-Buffering"] = "no"
+        return response
 
     @app.get("/api/status")
     def status():

@@ -6,10 +6,11 @@ from pathlib import Path
 import cv2
 import ncnn
 import numpy as np
+import yaml
 
 
-class NcnnPersonDetector:
-    """YOLO11 NCNN person detector without PyTorch or Ultralytics runtime."""
+class NcnnObjectDetector:
+    """YOLO11 NCNN COCO object detector without PyTorch or Ultralytics runtime."""
 
     def __init__(
         self,
@@ -22,8 +23,21 @@ class NcnnPersonDetector:
         model_path = Path(model_dir)
         param_path = model_path / "model.ncnn.param"
         bin_path = model_path / "model.ncnn.bin"
-        if not param_path.exists() or not bin_path.exists():
+        metadata_path = model_path / "metadata.yaml"
+        if not param_path.exists() or not bin_path.exists() or not metadata_path.exists():
             raise FileNotFoundError(f"NCNN model is incomplete: {model_path}")
+        metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8")) or {}
+        raw_names = metadata.get("names", {})
+        if isinstance(raw_names, dict):
+            self.class_names = [
+                str(name) for _, name in sorted(raw_names.items(), key=lambda item: int(item[0]))
+            ]
+        elif isinstance(raw_names, list):
+            self.class_names = [str(name) for name in raw_names]
+        else:
+            self.class_names = []
+        if not self.class_names:
+            raise RuntimeError(f"Class names are missing from {metadata_path}")
 
         self.input_size = input_size
         self.confidence = confidence
@@ -69,10 +83,17 @@ class NcnnPersonDetector:
         if prediction.ndim != 2 or prediction.shape[0] < 5:
             raise RuntimeError(f"Unexpected NCNN output shape: {prediction.shape}")
 
-        scores = prediction[4]
+        class_scores = prediction[4 : 4 + len(self.class_names)]
+        if class_scores.shape[0] != len(self.class_names):
+            raise RuntimeError(
+                f"Model has {class_scores.shape[0]} class rows, expected {len(self.class_names)}"
+            )
+        class_ids = np.argmax(class_scores, axis=0)
+        scores = class_scores[class_ids, np.arange(class_scores.shape[1])]
         candidate_indices = np.flatnonzero(scores >= self.confidence)
         boxes_xywh: list[list[int]] = []
         confidences: list[float] = []
+        candidate_class_ids: list[int] = []
 
         for index in candidate_indices:
             center_x, center_y, width, height = prediction[:4, index]
@@ -88,23 +109,32 @@ class NcnnPersonDetector:
             if x2 <= x1 or y2 <= y1:
                 continue
             boxes_xywh.append([x1, y1, x2 - x1, y2 - y1])
+            candidate_class_ids.append(int(class_ids[index]))
             confidences.append(float(scores[index]))
 
         if not boxes_xywh:
             return []
 
-        selected = cv2.dnn.NMSBoxes(boxes_xywh, confidences, self.confidence, self.nms_iou)
+        selected = cv2.dnn.NMSBoxesBatched(
+            boxes_xywh,
+            confidences,
+            candidate_class_ids,
+            self.confidence,
+            self.nms_iou,
+        )
         if selected is None or len(selected) == 0:
             return []
 
         detections = []
         for selected_index in np.asarray(selected).reshape(-1):
-            x, y, width, height = boxes_xywh[int(selected_index)]
+            index = int(selected_index)
+            x, y, width, height = boxes_xywh[index]
+            class_id = candidate_class_ids[index]
             detections.append(
                 {
-                    "class_id": 0,
-                    "label": "person",
-                    "confidence": confidences[int(selected_index)],
+                    "class_id": class_id,
+                    "label": self.class_names[class_id],
+                    "confidence": confidences[index],
                     "box": [x, y, x + width, y + height],
                 }
             )

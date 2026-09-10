@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Smart Home Vision</title>
+  <title>AI Vision 개발 대시보드</title>
   <style>
-    :root { color-scheme: dark; --bg:#0b0f16; --panel:#151b25; --line:#293345; --text:#eef3fb; --muted:#8f9bad; --green:#36d17c; --red:#ff6374; --blue:#6aa9ff; }
+    :root { color-scheme: dark; --bg:#0b0f16; --panel:#151b25; --line:#293345; --text:#eef3fb; --muted:#8f9bad; --green:#36d17c; --red:#ff6374; --blue:#6aa9ff; --orange:#ffbd59; }
     * { box-sizing: border-box; }
     body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,sans-serif; }
     header { padding:22px 26px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
@@ -19,6 +19,7 @@
     .badge { padding:3px 9px; border-radius:99px; background:#303847; color:var(--muted); font-size:12px; }
     .badge.online { background:rgba(54,209,124,.15); color:var(--green); }
     .badge.person { background:rgba(255,99,116,.15); color:var(--red); }
+    .badge.object { background:rgba(255,189,89,.15); color:var(--orange); }
     .stream { width:100%; aspect-ratio:16/10; object-fit:contain; display:block; background:#05070a; }
     .meta { padding:10px 14px 14px; color:var(--muted); font-size:13px; min-height:44px; }
     .events { margin-top:22px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
@@ -32,7 +33,7 @@
 </head>
 <body>
   <header>
-    <h1>AI Smart Home Vision</h1>
+    <h1>AI Vision 개발 대시보드</h1>
     <div class="summary" id="summary">연결 확인 중…</div>
   </header>
   <main>
@@ -43,7 +44,7 @@
           <span class="name" id="name-{{ camera_id }}">{{ camera_id }}</span>
           <span class="badge" id="badge-{{ camera_id }}">대기</span>
         </div>
-        <img class="stream" src="/stream/{{ camera_id }}" alt="{{ camera_id }} stream">
+        <img class="stream" data-camera-id="{{ camera_id }}" src="/stream/{{ camera_id }}" alt="{{ camera_id }} stream">
         <div class="meta" id="meta-{{ camera_id }}">카메라 시작 중…</div>
       </article>
       {% endfor %}
@@ -54,6 +55,39 @@
     </section>
   </main>
   <script>
+    const streamTimers = new Map();
+    let lastStreamRestart = Date.now();
+
+    function restartStream(image, delay = 0) {
+      const cameraId = image.dataset.cameraId;
+      clearTimeout(streamTimers.get(cameraId));
+      const timer = setTimeout(() => {
+        image.src = `/stream/${encodeURIComponent(cameraId)}?connection=${Date.now()}`;
+        streamTimers.delete(cameraId);
+      }, delay);
+      streamTimers.set(cameraId, timer);
+    }
+
+    function restartAllStreams() {
+      const now = Date.now();
+      if (now - lastStreamRestart < 1000) return;
+      lastStreamRestart = now;
+      document.querySelectorAll('.stream').forEach(image => restartStream(image));
+    }
+
+    document.querySelectorAll('.stream').forEach(image => {
+      image.addEventListener('error', () => restartStream(image, 2000));
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') setTimeout(restartAllStreams, 250);
+    });
+    window.addEventListener('pageshow', restartAllStreams);
+    window.addEventListener('focus', restartAllStreams);
+    window.addEventListener('online', restartAllStreams);
+    setInterval(() => {
+      if (document.visibilityState === 'visible') restartAllStreams();
+    }, 10 * 60 * 1000);
+
     async function refreshStatus() {
       const response = await fetch('/api/status', {cache:'no-store'});
       const data = await response.json();
@@ -62,9 +96,17 @@
       for (const camera of data.cameras) {
         document.getElementById(`name-${camera.camera_id}`).textContent = camera.label;
         const badge = document.getElementById(`badge-${camera.camera_id}`);
-        badge.className = 'badge' + (camera.person_count ? ' person' : camera.online ? ' online' : '');
-        badge.textContent = camera.person_count ? `사람 ${camera.person_count}명` : camera.online ? '온라인' : '오프라인';
-        document.getElementById(`meta-${camera.camera_id}`).textContent = camera.error || `${camera.source_type} · ${camera.ai_enabled ? 'AI 분석' : '감시 전용'} · ${camera.capture_fps} FPS`;
+        const hasObjects = camera.object_count > 0;
+        badge.className = 'badge' + (camera.person_count ? ' person' : hasObjects ? ' object' : camera.online ? ' online' : '');
+        badge.textContent = camera.person_count
+          ? `사람 ${camera.person_count}명`
+          : hasObjects ? `객체 ${camera.object_count}개` : camera.online ? '온라인' : '오프라인';
+        const objectSummary = Object.entries(camera.detected_objects || {})
+          .map(([label, count]) => `${label} ${count}`)
+          .join(', ');
+        const baseMeta = `${camera.source_type} · ${camera.ai_enabled ? 'AI 분석' : '감시 전용'} · ${camera.capture_fps} FPS`;
+        document.getElementById(`meta-${camera.camera_id}`).textContent =
+          camera.error || (objectSummary ? `${baseMeta} · 탐지: ${objectSummary}` : baseMeta);
       }
     }
     async function refreshEvents() {

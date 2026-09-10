@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 
 from .events import EventBus
-from .inference import NcnnPersonDetector
+from .inference import NcnnObjectDetector
 from .sources import PiCameraSource, RtspSource, UsbCameraSource
 from .sources.base import CameraSource
 
@@ -22,6 +22,8 @@ class WorkerSnapshot:
     online: bool
     ai_enabled: bool
     person_count: int
+    object_count: int
+    detected_objects: dict[str, int]
     capture_fps: float
     last_frame_age: float | None
     error: str | None
@@ -32,7 +34,7 @@ class CameraWorker:
         self,
         camera_config: dict[str, Any],
         source: CameraSource,
-        detector: NcnnPersonDetector,
+        detector: NcnnObjectDetector,
         event_bus: EventBus,
         jpeg_quality: int,
     ):
@@ -125,18 +127,19 @@ class CameraWorker:
                 self._last_frame_at = now
 
     def _handle_person_state(self) -> None:
-        person_present = bool(self._detections)
+        people = [item for item in self._detections if item["label"] == "person"]
+        person_present = bool(people)
         if person_present == self._person_present:
             return
 
         self._person_present = person_present
         if person_present:
-            confidence = max(item["confidence"] for item in self._detections)
+            confidence = max(item["confidence"] for item in people)
             self.event_bus.emit(
                 self.camera_id,
                 "person_detected",
                 confidence,
-                {"person_count": len(self._detections), "source_type": self.source_type},
+                {"person_count": len(people), "source_type": self.source_type},
             )
         else:
             self.event_bus.emit(
@@ -150,14 +153,16 @@ class CameraWorker:
         for detection in self._detections:
             x1, y1, x2, y2 = detection["box"]
             confidence = detection["confidence"]
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 70), 2)
+            label = detection["label"]
+            color = (0, 220, 70) if label == "person" else (0, 185, 255)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
                 frame,
-                f"PERSON {confidence:.2f}",
+                f"{label.upper()} {confidence:.2f}",
                 (x1, max(24, y1 - 8)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.65,
-                (0, 220, 70),
+                color,
                 2,
             )
 
@@ -180,13 +185,19 @@ class CameraWorker:
     def snapshot(self) -> WorkerSnapshot:
         with self._lock:
             age = None if self._last_frame_at is None else max(0.0, time.monotonic() - self._last_frame_at)
+            detected_objects: dict[str, int] = {}
+            for detection in self._detections:
+                label = detection["label"]
+                detected_objects[label] = detected_objects.get(label, 0) + 1
             return WorkerSnapshot(
                 camera_id=self.camera_id,
                 label=self.label,
                 source_type=self.source_type,
                 online=self._online and age is not None and age < 5.0,
                 ai_enabled=self.ai_enabled,
-                person_count=len(self._detections),
+                person_count=detected_objects.get("person", 0),
+                object_count=sum(detected_objects.values()),
+                detected_objects=detected_objects,
                 capture_fps=round(self._capture_fps, 1),
                 last_frame_age=round(age, 1) if age is not None else None,
                 error=self._error,
@@ -201,7 +212,7 @@ class VisionPipeline:
         self.config = config
         self.event_bus = EventBus(config["mqtt"])
         inference = config["inference"]
-        self.detector = NcnnPersonDetector(
+        self.detector = NcnnObjectDetector(
             model_dir=inference["model"],
             input_size=int(inference.get("input_size", 320)),
             confidence=float(inference.get("confidence", 0.35)),
