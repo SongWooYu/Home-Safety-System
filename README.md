@@ -17,6 +17,7 @@ Raspberry Pi 4가 MQTT·이벤트 저장·경보·최종 화면을 담당하는 
 - [현재 프로젝트와 진행 단계](docs/CURRENT_STATE.md)
 - [Pi5 카메라·AI·MQTT 상세](docs/PI5_VISION.md)
 - [Pi5→브라우저 WebRTC 설치·성능·장애 대응](docs/WEBRTC_STREAMING.md)
+- [Pi5 듀얼 HDMI 전시 화면](docs/DUAL_DISPLAY.md)
 - [얼굴 등록·인식·개인정보](docs/FACE_RECOGNITION.md)
 - [Pi4 clone 설치·기존 서버 마이그레이션](docs/PI4_SERVER.md)
 - [Pi4 다음 작업 체크리스트](docs/PI4_NEXT_STEPS.md)

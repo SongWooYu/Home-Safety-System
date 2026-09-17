@@ -35,16 +35,17 @@ Pi5의 `eth0`는 현재 내려가 있고 Dahua는 Pi5에 직결하지 않는다.
 - 로케일: `C.UTF-8`; 이전 `en_US.UTF-8` 경고는 현재 발생 조건이 제거됨
 - 서비스: `smarthome-vision.service`가 enabled/active
 - WebRTC: MediaMTX가 enabled/active, 카메라별 FFmpeg는 시청 중에만 on-demand 실행
+- 전시 출력: HDMI-A-1 OS 데스크톱, HDMI-A-2 Pi5 로컬 3카메라 전체화면(두 화면 연결 시 자동 시작)
 - 전시 영상: H.264 640×360, 15 FPS, 카메라당 1,000 kbit/s
-- 현재 카메라: cam3 온라인; ABKO USB 장치는 미열거, Dahua `192.168.1.64`는 호스트 도달 불가(전원·케이블·공유기 확인 필요)
+- 현재 카메라: Camera Module 3, ABKO 웹캠, Dahua RTSP 모두 온라인
 - 객체 검출: YOLO11n NCNN, 화면과 이벤트에는 `person`만 사용
 - 자세/낙상: YOLO11n-pose NCNN과 보수적인 시간 기반 상태 추적
 - 얼굴: OpenCV YuNet + SFace, 등록·삭제 API는 관리 키 필요
 - MQTT: `192.168.1.10:1883`로 이벤트와 상태 전송
 - 얼굴 원본 사진은 저장하지 않으며 특징 벡터 파일도 Git에서 제외
 
-세 장치가 연결됐을 때 입력은 약 14~30 FPS로 캡처된다. 2026-09-17 점검 시에는
-USB 웹캠과 Dahua가 물리·네트워크 계층에서 오프라인이었다.
+세 장치 입력은 약 12~25 FPS로 캡처된다. 2026-09-17 점검 시에는
+세 카메라 모두 온라인이고 MQTT도 연결된 상태였다.
 AI 분석 FPS는 캡처 FPS보다 낮게 제한하여 Pi5 CPU 부하를 제어한다.
 
 ## 디렉터리 역할
@@ -52,6 +53,7 @@ AI 분석 FPS는 캡처 FPS보다 낮게 제한하여 Pi5 CPU 부하를 제어�
 ```text
 /home/pi/Home-Safety-System
 ├── config/                 Pi5 카메라·추론·MQTT·MediaMTX 설정
+├── config/display/         듀얼 HDMI 배치와 사용자 시연 서비스 설정
 ├── src/smarthome_vision/   Pi5 수집, 추론, 이벤트, 개발 대시보드
 ├── models/                 Git에 포함된 YOLO11 NCNN 모델
 ├── runtime/                내려받은 얼굴 모델; Git 제외

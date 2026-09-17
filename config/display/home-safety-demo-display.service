@@ -1,0 +1,14 @@
+[Unit]
+Description=Home Safety second-HDMI demonstration display
+After=graphical-session.target
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=%t
+Environment=WAYLAND_DISPLAY=wayland-0
+ExecStart=/home/pi/Home-Safety-System/scripts/start_demo_display.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
