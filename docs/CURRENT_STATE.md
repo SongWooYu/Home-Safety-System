@@ -35,7 +35,7 @@ Pi5의 `eth0`는 현재 내려가 있고 Dahua는 Pi5에 직결하지 않는다.
 - 로케일: `C.UTF-8`; 이전 `en_US.UTF-8` 경고는 현재 발생 조건이 제거됨
 - 서비스: `smarthome-vision.service`가 enabled/active
 - WebRTC: MediaMTX가 enabled/active, 카메라별 FFmpeg는 시청 중에만 on-demand 실행
-- 전시 영상: H.264 640×360, 8 FPS, 카메라당 700 kbit/s
+- 전시 영상: H.264 640×360, 15 FPS, 카메라당 1,000 kbit/s
 - 현재 카메라: cam3 온라인; ABKO USB 장치는 미열거, Dahua `192.168.1.64`는 호스트 도달 불가(전원·케이블·공유기 확인 필요)
 - 객체 검출: YOLO11n NCNN, 화면과 이벤트에는 `person`만 사용
 - 자세/낙상: YOLO11n-pose NCNN과 보수적인 시간 기반 상태 추적
@@ -78,7 +78,7 @@ MJPEG 연결을 새로 만든다.
 
 Pi4의 `:8081`은 전체 안전 상태, 최근 사건, 경보 확인·취소를 제공하는 사용자용
 화면이다. 영상 iframe은 Pi4를 거치지 않고 Pi5 `:8889`의 MediaMTX와 WebRTC로
-직접 연결한다. 기본 영상은 H.264 640×360, 8 FPS, 700 kbit/s이며 절전·탭 복귀
+직접 연결한다. 기본 영상은 H.264 640×360, 15 FPS, 1,000 kbit/s이며 절전·탭 복귀
 뒤 iframe을 새로 연결한다.
 
 ## 완료된 것

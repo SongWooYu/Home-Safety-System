@@ -89,7 +89,7 @@ Pi4 재부팅 후 자동 복구된다.
 
 ```text
 카메라 -> Pi5 BGR/AI 분석/오버레이 JPEG
-       -> 로컬 FFmpeg: H.264 640x360, 8 FPS, 700 kbit/s
+       -> 로컬 FFmpeg: H.264 640x360, 15 FPS, 1,000 kbit/s
        -> Pi5 MediaMTX: 로컬 RTSP 게시
        -> WebRTC/ICE(UDP 8189 우선, TCP 8189 대체)
        -> 전시 브라우저

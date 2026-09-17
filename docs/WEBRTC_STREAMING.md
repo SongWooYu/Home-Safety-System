@@ -31,9 +31,9 @@ Pi5에서 AI 오버레이까지 끝낸 영상을 H.264로 인코딩하고 MediaM
 
 | 항목 | 값 |
 |---|---|
-| 영상 | H.264 Constrained Baseline, 640×360, 8 FPS |
-| 목표 비트레이트 | 카메라당 700 kbit/s, 합계 약 2.1 Mbit/s |
-| FFmpeg(세 영상을 볼 때) | 카메라당 약 3~5% CPU, 약 60MB RSS |
+| 영상 | H.264 Constrained Baseline, 640×360, 15 FPS |
+| 목표 비트레이트 | 카메라당 1,000 kbit/s, 합계 약 3.0 Mbit/s |
+| FFmpeg(세 영상을 볼 때) | 카메라당 약 10~14% CPU, 약 60MB RSS |
 | MediaMTX | 약 0.5% CPU, 약 46MB RSS |
 | 시청자 없음 | FFmpeg 0개; MediaMTX만 상주 |
 
@@ -95,10 +95,10 @@ WEBRTC_CAMERAS=cam3,webcam,dahua
 인코딩 기본값은 `/etc/default/smarthome-webrtc`에 있다.
 
 ```dotenv
-WEBRTC_FPS=8
+WEBRTC_FPS=15
 WEBRTC_WIDTH=640
 WEBRTC_HEIGHT=360
-WEBRTC_BITRATE_KBPS=700
+WEBRTC_BITRATE_KBPS=1000
 ```
 
 수정 후:
@@ -107,7 +107,7 @@ WEBRTC_BITRATE_KBPS=700
 sudo systemctl restart smarthome-mediamtx.service
 ```
 
-먼저 8 FPS/700 kbit/s를 유지한다. 더 부드럽게 보이게 하려고 FPS·해상도를 동시에
+현재 1차 시험값은 15 FPS/1,000 kbit/s다. 더 부드럽게 보이게 하려고 FPS·해상도를 동시에
 올리면 Pi5 CPU와 대역폭이 함께 증가한다. AI 분석 주기가 영상 FPS보다 느리면
 영상 FPS만 높여도 새 탐지 결과가 더 자주 생기는 것은 아니다.
 

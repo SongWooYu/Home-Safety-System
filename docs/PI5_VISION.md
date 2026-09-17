@@ -36,12 +36,12 @@
 ```
 
 AI 처리는 전송 형식으로 바꾸기 전에 한다. `/stream/<camera_id>?fps=8`의 최신
-분석 JPEG를 Pi5 로컬 FFmpeg가 받아 H.264 Baseline 640×360, 8 FPS,
-700 kbit/s로 소프트웨어 인코딩한다. MediaMTX에는 loopback RTSP로 게시하고,
+분석 JPEG를 Pi5 로컬 FFmpeg가 받아 H.264 Baseline 640×360, 15 FPS,
+1,000 kbit/s로 소프트웨어 인코딩한다. MediaMTX에는 loopback RTSP로 게시하고,
 브라우저에는 WebRTC로 전달한다. Pi4는 영상 경로에 들어가지 않는다.
 
 Pi5에는 H.264 하드웨어 인코더가 없으므로 `libx264`를 쓴다. 2026-09-17 실측에서
-세 영상을 동시에 볼 때 FFmpeg 프로세스는 각각 약 3~5% CPU와 약 60MB RSS, MediaMTX는 약 46MB
+세 영상을 동시에 볼 때 FFmpeg 프로세스는 각각 약 10~14% CPU와 약 60MB RSS, MediaMTX는 약 46MB
 RSS를 사용했다. 장면과 접속자 수에 따라 달라지므로 전시 전 장시간 측정한다.
 
 ## 모델과 필터
