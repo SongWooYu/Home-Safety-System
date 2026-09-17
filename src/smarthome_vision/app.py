@@ -38,10 +38,16 @@ def create_app(pipeline: VisionPipeline) -> Flask:
     def stream(camera_id: str):
         if camera_id not in pipeline.workers:
             abort(404)
+        default_stream_fps = float(
+            pipeline.config.get("server", {}).get("stream_fps", 15)
+        )
         try:
-            stream_fps = min(30.0, max(1.0, float(request.args.get("fps", "25"))))
+            stream_fps = min(
+                30.0,
+                max(1.0, float(request.args.get("fps", default_stream_fps))),
+            )
         except ValueError:
-            stream_fps = 25.0
+            stream_fps = default_stream_fps
 
         def frames():
             while True:

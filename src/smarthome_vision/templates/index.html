@@ -128,9 +128,11 @@
     window.addEventListener('pageshow', restartAllStreams);
     window.addEventListener('focus', restartAllStreams);
     window.addEventListener('online', restartAllStreams);
+    // Reopen MJPEG periodically so a slow client's old TCP backlog cannot
+    // leave a camera tile frozen indefinitely.
     setInterval(() => {
       if (document.visibilityState === 'visible') restartAllStreams();
-    }, 10 * 60 * 1000);
+    }, 60 * 1000);
 
     const faceToken = document.getElementById('face-token');
     const faceStatus = document.getElementById('face-status');
@@ -285,7 +287,7 @@
       try { await Promise.all([refreshStatus(), refreshEvents()]); } catch (error) { document.getElementById('summary').textContent = '서버 연결 재시도 중…'; }
     }
     refresh();
-    setInterval(refresh, 1500);
+    setInterval(refresh, 3000);
   </script>
 </body>
 </html>

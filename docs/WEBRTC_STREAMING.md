@@ -33,12 +33,13 @@ Pi5에서 AI 오버레이까지 끝낸 영상을 H.264로 인코딩하고 MediaM
 |---|---|
 | 영상 | H.264 Constrained Baseline, 640×360, 15 FPS |
 | 목표 비트레이트 | 카메라당 1,000 kbit/s, 합계 약 3.0 Mbit/s |
-| FFmpeg(세 영상을 볼 때) | 카메라당 약 10~14% CPU, 약 60MB RSS |
+| FFmpeg(세 영상을 볼 때) | 640×360 MJPEG 입력 최적화 후 카메라당 약 7% CPU, 약 60MB RSS |
 | MediaMTX | 약 0.5% CPU, 약 46MB RSS |
 | 시청자 없음 | FFmpeg 0개; MediaMTX만 상주 |
 
-CPU 값은 Linux 전체 CPU 표기이며 장면 복잡도에 따라 달라진다. 기존 MJPEG는
-장면에 따라 수십 Mbit/s가 될 수 있으므로 네트워크 절감 폭이 특히 크다.
+CPU 값은 Linux 전체 CPU 표기이며 장면 복잡도에 따라 달라진다. Pi5 MJPEG도
+640×360, 15 FPS, 품질 70으로 제한한다. 최적화 전 세 MJPEG 합계 약 7.3MB/s가
+약 1.4MB/s로 줄어 로컬 대시보드와 WebRTC publisher의 경쟁을 완화했다.
 
 ## Pi5 설치
 

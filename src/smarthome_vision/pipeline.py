@@ -57,6 +57,9 @@ class CameraWorker:
         pose_estimator: NcnnPoseEstimator | None,
         face_registry: FaceRegistry | None,
         event_bus: EventBus,
+        stream_width: int,
+        stream_height: int,
+        stream_fps: float,
         jpeg_quality: int,
         fall_config: dict[str, Any],
         face_config: dict[str, Any],
@@ -71,6 +74,9 @@ class CameraWorker:
         self.pose_estimator = pose_estimator
         self.face_registry = face_registry
         self.event_bus = event_bus
+        self.stream_width = max(1, stream_width)
+        self.stream_height = max(1, stream_height)
+        self.stream_interval = 1.0 / max(stream_fps, 1.0)
         self.jpeg_quality = jpeg_quality
         self.ai_enabled = bool(camera_config.get("ai_enabled", False))
         self.analysis_interval = 1.0 / max(float(camera_config.get("analysis_fps", 3)), 0.1)
@@ -145,6 +151,7 @@ class CameraWorker:
         next_pose_analysis = 0.0
         next_status_publish = 0.0
         next_face_analysis = 0.0
+        next_stream_frame = 0.0
 
         while not self._stop.is_set():
             frame = self.source.read()
@@ -194,21 +201,30 @@ class CameraWorker:
                     self._faces = []
                 next_face_analysis = now + self.face_interval
 
-            annotated = frame.copy()
-            self._draw_overlay(annotated)
-            ok, encoded = cv2.imencode(
-                ".jpg",
-                annotated,
-                [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality],
-            )
-            if not ok:
-                continue
-
-            with self._lock:
-                self._jpeg = encoded.tobytes()
-                self._online = True
-                self._error = None
-                self._last_frame_at = now
+            if now >= next_stream_frame:
+                annotated = frame.copy()
+                self._draw_overlay(annotated)
+                if (
+                    annotated.shape[1] != self.stream_width
+                    or annotated.shape[0] != self.stream_height
+                ):
+                    annotated = cv2.resize(
+                        annotated,
+                        (self.stream_width, self.stream_height),
+                        interpolation=cv2.INTER_AREA,
+                    )
+                ok, encoded = cv2.imencode(
+                    ".jpg",
+                    annotated,
+                    [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality],
+                )
+                if ok:
+                    with self._lock:
+                        self._jpeg = encoded.tobytes()
+                        self._online = True
+                        self._error = None
+                        self._last_frame_at = now
+                next_stream_frame = now + self.stream_interval
 
             if now >= next_status_publish:
                 self.event_bus.publish_status(self.camera_id, self.status_dict())
@@ -411,6 +427,9 @@ class VisionPipeline:
                 self.pose_estimator,
                 self.face_registry,
                 self.event_bus,
+                int(config["server"].get("stream_width", 640)),
+                int(config["server"].get("stream_height", 360)),
+                float(config["server"].get("stream_fps", 15)),
                 int(config["server"].get("jpeg_quality", 80)),
                 fall_config,
                 face_config,

@@ -1,7 +1,10 @@
 server:
   host: 0.0.0.0
   port: 8080
-  jpeg_quality: 80
+  stream_width: 640
+  stream_height: 360
+  stream_fps: 15
+  jpeg_quality: 70
 
 mqtt:
   enabled: true
