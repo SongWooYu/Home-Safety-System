@@ -21,19 +21,14 @@
   .label { font-size:12px; color:#999; }
   .value { font-size:26px; font-weight:600; margin-top:4px; }
   .time { font-size:11px; color:#666; margin-top:6px; }
-  .charts { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:20px; }
-  canvas { background:#2a2a2a; border-radius:10px; padding:10px; }
-  @media (max-width:800px) { .charts { grid-template-columns:1fr; } }
+  canvas { background:#2a2a2a; border-radius:10px; padding:10px; margin-top:20px; }
 </style>
 </head>
 <body>
 
 <h1>스마트홈 모니터 <span id="now"></span></h1>
 <div id="rooms"></div>
-<div class="charts">
-  <canvas id="chartTemp" height="120"></canvas>
-  <canvas id="chartHumi" height="120"></canvas>
-</div>
+<canvas id="chart" height="90"></canvas>
 
 <script>
 const ROOM_NAMES = { entrance:"현관", livingroom:"거실", kitchen:"부엌", bathroom:"화장실" };
@@ -101,42 +96,58 @@ async function loadCards() {
   document.getElementById("rooms").innerHTML = html;
 }
 
-const charts = {};
-async function drawChart(id, datasets) {
+const SERIES = [
+  { room:"livingroom", metric:"temperature", label:"거실 온도",   color:"#f87171", axis:"yTemp", dash:[] },
+  { room:"kitchen",    metric:"temperature", label:"부엌 온도",   color:"#fb923c", axis:"yTemp", dash:[] },
+  { room:"bathroom",   metric:"temperature", label:"화장실 온도", color:"#facc15", axis:"yTemp", dash:[] },
+  { room:"livingroom", metric:"humidity",    label:"거실 습도",   color:"#f87171", axis:"yHumi", dash:[6,4] },
+  { room:"kitchen",    metric:"humidity",    label:"부엌 습도",   color:"#fb923c", axis:"yHumi", dash:[6,4] },
+  { room:"bathroom",   metric:"humidity",    label:"화장실 습도", color:"#facc15", axis:"yHumi", dash:[6,4] }
+];
+
+let chart;
+async function loadChart() {
   const results = await Promise.all(
-    datasets.map(ds => fetch(`/api/history/${ds.room}/${ds.metric}`).then(r => r.json()))
+    SERIES.map(s => fetch(`/api/history/${s.room}/${s.metric}`).then(r => r.json()))
   );
-  if (charts[id]) charts[id].destroy();
-  charts[id] = new Chart(document.getElementById(id), {
+  const longest = results.reduce((a, b) => a.length >= b.length ? a : b, []);
+
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById("chart"), {
     type: "line",
     data: {
-      labels: results[0].map(d => fmtShort(d.ts)),
-      datasets: datasets.map((ds, i) => ({
-        label: ds.label,
+      labels: longest.map(d => fmtShort(d.ts)),
+      datasets: SERIES.map((s, i) => ({
+        label: s.label,
         data: results[i].map(d => parseFloat(d.value)),
-        borderColor: ds.color, tension:0.3, pointRadius:0
+        borderColor: s.color,
+        borderDash: s.dash,
+        yAxisID: s.axis,
+        tension: 0.3,
+        pointRadius: 0
       }))
     },
     options: {
       animation: false,
-      scales: { y:{ grid:{color:"#3a3a3a"}, ticks:{color:"#999"} },
-                x:{ grid:{color:"#3a3a3a"}, ticks:{color:"#999", maxTicksLimit:6} } },
-      plugins: { legend:{ labels:{color:"#eee"} } }
+      interaction: { mode:"index", intersect:false },
+      scales: {
+        x: { grid:{color:"#3a3a3a"}, ticks:{color:"#999", maxTicksLimit:8} },
+        yTemp: {
+          position: "left",
+          title: { display:true, text:"온도 (°C) — 실선", color:"#ccc" },
+          grid:{color:"#3a3a3a"}, ticks:{color:"#999"},
+          suggestedMin: 15, suggestedMax: 35
+        },
+        yHumi: {
+          position: "right",
+          title: { display:true, text:"습도 (%) — 점선", color:"#ccc" },
+          grid:{ drawOnChartArea:false }, ticks:{color:"#999"},
+          suggestedMin: 30, suggestedMax: 100
+        }
+      },
+      plugins: { legend:{ labels:{color:"#eee", usePointStyle:false} } }
     }
   });
-}
-
-function loadCharts() {
-  drawChart("chartTemp", [
-    { room:"livingroom", metric:"temperature", label:"거실", color:"#f87171" },
-    { room:"kitchen",    metric:"temperature", label:"부엌", color:"#fb923c" },
-    { room:"bathroom",   metric:"temperature", label:"화장실", color:"#60a5fa" }
-  ]);
-  drawChart("chartHumi", [
-    { room:"livingroom", metric:"humidity", label:"거실", color:"#f87171" },
-    { room:"kitchen",    metric:"humidity", label:"부엌", color:"#fb923c" },
-    { room:"bathroom",   metric:"humidity", label:"화장실", color:"#60a5fa" }
-  ]);
 }
 
 function updateNow() {
@@ -144,7 +155,7 @@ function updateNow() {
     { year:"numeric", month:"long", day:"numeric", weekday:"short", hour:"2-digit", minute:"2-digit" });
 }
 
-function refresh() { loadCards(); loadCharts(); updateNow(); }
+function refresh() { loadCards(); loadChart(); updateNow(); }
 refresh();
 setInterval(refresh, 5000);
 </script>
