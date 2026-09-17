@@ -14,6 +14,8 @@ Raspberry Pi 4가 MQTT·이벤트 저장·경보·최종 화면을 담당하는 
 
 ## 문서
 
+- [구현 및 설정 통합 기록](docs/IMPLEMENTATION_HISTORY.md)
+- [자원 제약 기반 시스템 전면 재검토](docs/ARCHITECTURE_REVIEW.md)
 - [현재 프로젝트와 진행 단계](docs/CURRENT_STATE.md)
 - [Pi5 카메라·AI·MQTT 상세](docs/PI5_VISION.md)
 - [Pi5→브라우저 WebRTC 설치·성능·장애 대응](docs/WEBRTC_STREAMING.md)
