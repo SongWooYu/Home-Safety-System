@@ -32,7 +32,7 @@ curl -s http://127.0.0.1:8080/health
 journalctl -u smarthome-vision.service -f
 ```
 
-Dahua URL, MQTT 자격 증명, 얼굴 관리 키는 Git에서 제외된 `.env`에 둡니다.
+Dahua URL, MQTT 자격 증명, 얼굴 목록·삭제용 관리 키는 Git에서 제외된 `.env`에 둡니다.
 얼굴 모델 최초 설치는 `./scripts/setup_face_models.sh`로 수행합니다.
 
 ## Pi4 새 설치

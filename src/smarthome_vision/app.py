@@ -82,8 +82,6 @@ def create_app(pipeline: VisionPipeline) -> Flask:
 
     @app.post("/api/faces/enroll")
     def enroll_face():
-        if not face_admin_authorized():
-            return jsonify({"error": "얼굴 관리 키가 필요합니다."}), 401
         payload = request.get_json(silent=True) or {}
         try:
             person = pipeline.enroll_face(

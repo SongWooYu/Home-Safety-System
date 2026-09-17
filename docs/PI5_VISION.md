@@ -118,7 +118,7 @@ curl -s http://127.0.0.1:8080/api/status
 journalctl -u smarthome-vision.service -f
 ```
 
-Dahua 인증 정보, MQTT 인증 정보, 얼굴 관리 키는 Git 밖의
+Dahua 인증 정보, MQTT 인증 정보, 얼굴 목록·삭제용 관리 키는 Git 밖의
 `/home/pi/Home-Safety-System/.env`에만 둔다. RTSP URL은 메인 스트림
 `subtype=0`을 사용한다.
 

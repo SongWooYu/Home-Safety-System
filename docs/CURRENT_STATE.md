@@ -35,12 +35,12 @@ Pi5의 `eth0`는 현재 내려가 있고 Dahua는 Pi5에 직결하지 않는다.
 - 로케일: `C.UTF-8`; 이전 `en_US.UTF-8` 경고는 현재 발생 조건이 제거됨
 - 서비스: `smarthome-vision.service`가 enabled/active
 - WebRTC: MediaMTX가 enabled/active, 카메라별 FFmpeg는 시청 중에만 on-demand 실행
-- 전시 출력: HDMI-A-1 OS 데스크톱, HDMI-A-2 Pi5 로컬 3카메라 전체화면(두 화면 연결 시 자동 시작)
+- 전시 출력: HDMI-A-2 연결 시 Pi5 로컬 3카메라 화면을 즉시 전체화면으로 실행; HDMI-A-1은 연결 시 OS 데스크톱
 - 전시 영상: H.264 640×360, 15 FPS, 카메라당 1,000 kbit/s
 - 현재 카메라: Camera Module 3, ABKO 웹캠, Dahua RTSP 모두 온라인
 - 객체 검출: YOLO11n NCNN, 화면과 이벤트에는 `person`만 사용
 - 자세/낙상: YOLO11n-pose NCNN과 보수적인 시간 기반 상태 추적
-- 얼굴: OpenCV YuNet + SFace, 등록·삭제 API는 관리 키 필요
+- 얼굴: OpenCV YuNet + SFace, 등록은 코드 불필요; 목록 조회·삭제는 관리 키 필요
 - MQTT: `192.168.1.10:1883`로 이벤트와 상태 전송
 - 얼굴 원본 사진은 저장하지 않으며 특징 벡터 파일도 Git에서 제외
 
@@ -91,7 +91,7 @@ Pi4의 `:8081`은 전체 안전 상태, 최근 사건, 경보 확인·취소를 
 - 상태 변화 기반 사람·낙상 MQTT 이벤트와 retain 카메라 상태 발행
 - Pi5 자동 시작과 장시간 3카메라 표시 확인
 - Pi5 개발 화면 스트림 자동 재연결
-- 관리 키로 보호한 얼굴 등록·삭제, 이름 비공개 상태 출력
+- 코드 없는 현장 얼굴 등록, 관리 키로 보호한 목록·삭제, 이름 비공개 상태 출력
 - 정면·좌측·우측 다각도 얼굴 템플릿
 - Pi4 MQTT/PostgreSQL/수집/자동화/최종 화면 Compose 구성과 설치 도구
 - Pi5 MediaMTX/WebRTC와 3개 H.264 publisher 설치·자동 시작

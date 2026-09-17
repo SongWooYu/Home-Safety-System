@@ -47,10 +47,11 @@ install -m 0644 \
   "$user_unit_dir/home-safety-demo-display.service"
 
 systemctl --user daemon-reload
-systemctl --user enable --now home-safety-demo-display.service
+systemctl --user enable home-safety-demo-display.service
+systemctl --user restart home-safety-demo-display.service
 pkill -HUP -x kanshi 2>/dev/null || true
 labwc --reconfigure 2>/dev/null || true
 
 echo "Dual-display demo is configured."
 echo "HDMI-A-1: Raspberry Pi OS desktop"
-echo "HDMI-A-2: http://127.0.0.1:8080 full-screen demo when both outputs are connected"
+echo "HDMI-A-2: http://127.0.0.1:8080 full-screen demo whenever this output is connected"

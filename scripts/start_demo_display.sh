@@ -14,10 +14,10 @@ command -v wlr-randr >/dev/null 2>&1 || {
   exit 1
 }
 
-# Do not take over the only connected monitor. Wait until both HDMI outputs exist.
+# HDMI-A-2 is always the demonstration output, even when it is the only display.
 while true; do
   outputs="$(wlr-randr 2>/dev/null || true)"
-  if grep -q '^HDMI-A-1 ' <<<"$outputs" && grep -q '^HDMI-A-2 ' <<<"$outputs"; then
+  if grep -q '^HDMI-A-2 ' <<<"$outputs"; then
     break
   fi
   sleep 2
