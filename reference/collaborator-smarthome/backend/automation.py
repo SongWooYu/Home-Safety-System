@@ -4,7 +4,7 @@ import paho.mqtt.client as mqtt
 # ── 설정값 ──
 TEMP_HIGH = 28.0          # 이 온도 넘으면 에어컨 켜기
 TEMP_LOW = 25.0           # 이 온도 밑으로 내려가면 에어컨 끄기
-BRIGHT_HIGH = 2500        # 이보다 밝으면 커튼 닫기 (햇빛 강함)
+BRIGHT_HIGH = 2500        # 이보다 밝으면 커튼 닫기
 BRIGHT_LOW = 800          # 이보다 어두우면 커튼 열기
 NO_MOTION_SEC = 30        # 이 시간 조용하면 조명 끄기
 
