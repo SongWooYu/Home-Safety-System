@@ -62,9 +62,9 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 
-ensure_env VISION_BASE_URL "http://192.168.1.20:8080"
-ensure_env VISION_CAMERAS "cam3,webcam,dahua"
-ensure_env VISION_STREAM_FPS "8"
+ensure_env VISION_API_URL "http://192.168.1.20:8080"
+ensure_env WEBRTC_BASE_URL "http://192.168.1.20:8889"
+ensure_env WEBRTC_CAMERAS "cam3,webcam,dahua"
 legacy_pg=""
 for candidate in smarthome_postgres postgres; do
   if docker inspect "$candidate" >/dev/null 2>&1; then

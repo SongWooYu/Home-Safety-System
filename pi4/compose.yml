@@ -53,6 +53,6 @@ services:
 
   web:
     <<: *backend
-    command: ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "4", "--timeout", "0", "web:app"]
+    command: ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "2", "--timeout", "30", "web:app"]
     ports:
       - "${WEB_PORT:-8081}:8080"

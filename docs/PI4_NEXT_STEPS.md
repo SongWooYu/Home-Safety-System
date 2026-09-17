@@ -24,6 +24,9 @@
 
 - [ ] Pi5 `/api/status`에서 `mqtt_connected: true`
 - [ ] Pi4 화면에 cam3, webcam, dahua가 15초 이내 최신 상태로 표시
+- [ ] 브라우저 Network에서 영상이 `192.168.1.20:8889`로 직접 연결되는지 확인
+- [ ] Pi4의 `/vision/stream/*` 경로가 404이고 Pi4 컨테이너 메모리가 안정적인지 확인
+- [ ] 절전·탭 복귀 뒤 세 WebRTC 영상이 자동 재연결되는지 확인
 - [ ] 사람 등장/퇴장 한 번씩 DB 저장
 - [ ] 같은 `event_id`가 중복 저장되지 않음
 - [ ] `./pi4/scripts/smoke-test.sh`로 경보·취소 확인

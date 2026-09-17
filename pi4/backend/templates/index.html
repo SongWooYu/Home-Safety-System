@@ -34,12 +34,13 @@
         {% for camera_id in vision_cameras %}
         <article class="vision-card">
           <strong id="video-name-{{ camera_id }}">{{ camera_id }}</strong>
-          <img
+          <iframe
             class="vision-stream"
             data-camera-id="{{ camera_id }}"
-            src="/vision/stream/{{ camera_id }}"
-            alt="{{ camera_id }} AI 분석 영상"
-          >
+            src="{{ webrtc_base_url }}/{{ camera_id }}?controls=false&muted=true&autoplay=true&playsInline=true"
+            title="{{ camera_id }} AI 분석 영상"
+            allow="autoplay; fullscreen; picture-in-picture"
+          ></iframe>
           <div id="video-meta-{{ camera_id }}" class="stream-meta muted">영상 연결 중…</div>
         </article>
         {% endfor %}
@@ -58,43 +59,33 @@
   const token = document.getElementById('admin-token');
   token.value = sessionStorage.getItem('pi4AdminToken') || '';
   const labels = {person_detected:'사람 감지',person_cleared:'사람 없음',fall_suspected:'낙상 의심',fall_confirmed:'낙상 확인',fall_cleared:'낙상 해제'};
-  const streamTimers = new Map();
   let lastStreamRestart = 0;
 
   function make(tag, text, className='') {
     const node=document.createElement(tag); node.textContent=text; node.className=className; return node;
   }
-  function restartStream(image, delay=0) {
-    const cameraId=image.dataset.cameraId;
-    clearTimeout(streamTimers.get(cameraId));
-    const timer=setTimeout(()=>{
-      image.src=`/vision/stream/${encodeURIComponent(cameraId)}?connection=${Date.now()}`;
-      streamTimers.delete(cameraId);
-    },delay);
-    streamTimers.set(cameraId,timer);
-  }
+
   function restartAllStreams() {
     const now=Date.now();
     if(now-lastStreamRestart<1000)return;
     lastStreamRestart=now;
-    document.querySelectorAll('.vision-stream').forEach(image=>restartStream(image));
-  }
-  document.querySelectorAll('.vision-stream').forEach(image=>{
-    image.addEventListener('load',()=>{
-      const meta=document.getElementById(`video-meta-${image.dataset.cameraId}`);
-      if(meta)meta.textContent='AI 처리 영상 수신 중';
+    document.querySelectorAll('.vision-stream').forEach(frame=>{
+      const current=frame.src;
+      frame.src='about:blank';
+      setTimeout(()=>{frame.src=current;},100);
     });
-    image.addEventListener('error',()=>{
-      const meta=document.getElementById(`video-meta-${image.dataset.cameraId}`);
-      if(meta)meta.textContent='영상 재연결 중…';
-      restartStream(image,2000);
+  }
+  document.querySelectorAll('.vision-stream').forEach(frame=>{
+    frame.addEventListener('load',()=>{
+      if(frame.src==='about:blank')return;
+      const meta=document.getElementById(`video-meta-${frame.dataset.cameraId}`);
+      if(meta)meta.textContent='Pi5 WebRTC 직접 연결';
     });
   });
   document.addEventListener('visibilitychange',()=>{
     if(document.visibilityState==='visible')setTimeout(restartAllStreams,250);
   });
   window.addEventListener('pageshow',restartAllStreams);
-  window.addEventListener('focus',restartAllStreams);
   window.addEventListener('online',restartAllStreams);
 
   function render(data) {
@@ -169,7 +160,6 @@
   refreshVisionHealth();
   setInterval(refresh,2000);
   setInterval(refreshVisionHealth,5000);
-  setInterval(()=>{if(document.visibilityState==='visible')restartAllStreams();},10*60*1000);
 </script>
 </body>
 </html>

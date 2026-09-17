@@ -4,8 +4,8 @@
 
 서로 다른 세 카메라 인터페이스를 하나의 처리 결과와 MQTT 계약으로 통합한다.
 영상 분석 결과를 개발 대시보드에서 검증한다. Pi4에는 MQTT로 작은 JSON
-상태·이벤트를 보내고, 최종 화면이 열려 있을 때는 AI 오버레이가 끝난 MJPEG를
-HTTP로 중계한다.
+상태·이벤트를 보내고, AI 오버레이 영상은 Pi5에서 H.264/WebRTC로 변환해
+전시 브라우저에 직접 전달한다.
 
 ## 입력별 경로
 
@@ -32,15 +32,17 @@ HTTP로 중계한다.
   -> 상태 변화 이벤트 + 주기 상태 MQTT 발행
   -> 박스/상태 오버레이
   -> 개발 화면용 JPEG 인코딩
+  -> 전시용 FFmpeg H.264 인코딩 -> MediaMTX -> WebRTC 브라우저
 ```
 
-AI 처리는 MJPEG 웹 전송 전에 한다. `/stream/<camera_id>?fps=8`처럼 요청하면
-최신 분석 JPEG를 지정 FPS로 샘플링한다. Pi4는 이 응답의 바이트를 그대로
-중계하므로 다시 추론하거나 JPEG를 다시 압축하지 않는다. Pi5의 개발 화면은
-fps 파라미터 없이 기존 25 FPS 표시를 유지한다.
+AI 처리는 전송 형식으로 바꾸기 전에 한다. `/stream/<camera_id>?fps=8`의 최신
+분석 JPEG를 Pi5 로컬 FFmpeg가 받아 H.264 Baseline 640×360, 8 FPS,
+700 kbit/s로 소프트웨어 인코딩한다. MediaMTX에는 loopback RTSP로 게시하고,
+브라우저에는 WebRTC로 전달한다. Pi4는 영상 경로에 들어가지 않는다.
 
-현재 요구사항에는 MediaMTX가 필요하지 않다. 영상 녹화, 여러 클라이언트 배포,
-RTSP/WebRTC 출력이 필요해질 때 MediaMTX/H.264 경로를 별도 단계로 추가한다.
+Pi5에는 H.264 하드웨어 인코더가 없으므로 `libx264`를 쓴다. 2026-09-17 실측에서
+세 영상을 동시에 볼 때 FFmpeg 프로세스는 각각 약 3~5% CPU와 약 60MB RSS, MediaMTX는 약 46MB
+RSS를 사용했다. 장면과 접속자 수에 따라 달라지므로 전시 전 장시간 측정한다.
 
 ## 모델과 필터
 
@@ -119,3 +121,14 @@ journalctl -u smarthome-vision.service -f
 Dahua 인증 정보, MQTT 인증 정보, 얼굴 관리 키는 Git 밖의
 `/home/pi/Home-Safety-System/.env`에만 둔다. RTSP URL은 메인 스트림
 `subtype=0`을 사용한다.
+
+WebRTC 서비스 확인:
+
+```bash
+systemctl status smarthome-mediamtx.service
+ffprobe -v error -rtsp_transport tcp rtsp://127.0.0.1:8554/cam3
+curl -L -I http://127.0.0.1:8889/cam3
+```
+
+설치와 포트·비트레이트 조정은 [WebRTC 스트리밍 문서](WEBRTC_STREAMING.md)를
+따른다.

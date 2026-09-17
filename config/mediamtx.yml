@@ -1,0 +1,42 @@
+# Pi5 LAN media gateway: AI-overlay MJPEG in, browser WebRTC out.
+logLevel: info
+
+rtsp: true
+rtspTransports: [tcp]
+rtspAddress: 127.0.0.1:8554
+rtmp: false
+hls: false
+srt: false
+moq: false
+playback: false
+api: false
+metrics: false
+pprof: false
+
+webrtc: true
+webrtcAddress: :8889
+webrtcEncryption: false
+webrtcAllowOrigins: ["*"]
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+webrtcAdditionalHosts: [192.168.1.20]
+
+paths:
+  cam3:
+    source: publisher
+    runOnDemand: /home/pi/Home-Safety-System/scripts/publish_webrtc.sh cam3
+    runOnDemandRestart: true
+    runOnDemandStartTimeout: 10s
+    runOnDemandCloseAfter: 10s
+  webcam:
+    source: publisher
+    runOnDemand: /home/pi/Home-Safety-System/scripts/publish_webrtc.sh webcam
+    runOnDemandRestart: true
+    runOnDemandStartTimeout: 10s
+    runOnDemandCloseAfter: 10s
+  dahua:
+    source: publisher
+    runOnDemand: /home/pi/Home-Safety-System/scripts/publish_webrtc.sh dahua
+    runOnDemandRestart: true
+    runOnDemandStartTimeout: 10s
+    runOnDemandCloseAfter: 10s

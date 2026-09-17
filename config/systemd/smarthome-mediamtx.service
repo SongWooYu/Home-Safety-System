@@ -1,0 +1,20 @@
+[Unit]
+Description=Home Safety MediaMTX WebRTC gateway
+After=network-online.target smarthome-vision.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+EnvironmentFile=-/etc/default/smarthome-webrtc
+ExecStart=/usr/local/bin/mediamtx /home/pi/Home-Safety-System/config/mediamtx.yml
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

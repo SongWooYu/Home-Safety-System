@@ -1,6 +1,6 @@
 # 현재 프로젝트 상태
 
-기준일: 2026-09-10
+기준일: 2026-09-17
 
 ## 단일 기준 작업 공간
 
@@ -34,27 +34,31 @@ Pi5의 `eth0`는 현재 내려가 있고 Dahua는 Pi5에 직결하지 않는다.
 - 커널: `6.12.75+rpt-rpi-2712`
 - 로케일: `C.UTF-8`; 이전 `en_US.UTF-8` 경고는 현재 발생 조건이 제거됨
 - 서비스: `smarthome-vision.service`가 enabled/active
-- 카메라: Camera Module 3, ABKO APC720, Dahua RTSP 모두 온라인
+- WebRTC: MediaMTX가 enabled/active, 카메라별 FFmpeg는 시청 중에만 on-demand 실행
+- 전시 영상: H.264 640×360, 8 FPS, 카메라당 700 kbit/s
+- 현재 카메라: cam3 온라인; ABKO USB 장치는 미열거, Dahua `192.168.1.64`는 호스트 도달 불가(전원·케이블·공유기 확인 필요)
 - 객체 검출: YOLO11n NCNN, 화면과 이벤트에는 `person`만 사용
 - 자세/낙상: YOLO11n-pose NCNN과 보수적인 시간 기반 상태 추적
 - 얼굴: OpenCV YuNet + SFace, 등록·삭제 API는 관리 키 필요
 - MQTT: `192.168.1.10:1883`로 이벤트와 상태 전송
 - 얼굴 원본 사진은 저장하지 않으며 특징 벡터 파일도 Git에서 제외
 
-실측 상태는 시점과 장면에 따라 달라지지만 세 입력은 약 14~30 FPS로 캡처된다.
+세 장치가 연결됐을 때 입력은 약 14~30 FPS로 캡처된다. 2026-09-17 점검 시에는
+USB 웹캠과 Dahua가 물리·네트워크 계층에서 오프라인이었다.
 AI 분석 FPS는 캡처 FPS보다 낮게 제한하여 Pi5 CPU 부하를 제어한다.
 
 ## 디렉터리 역할
 
 ```text
 /home/pi/Home-Safety-System
-├── config/                 Pi5 카메라·추론·MQTT 설정
+├── config/                 Pi5 카메라·추론·MQTT·MediaMTX 설정
 ├── src/smarthome_vision/   Pi5 수집, 추론, 이벤트, 개발 대시보드
 ├── models/                 Git에 포함된 YOLO11 NCNN 모델
 ├── runtime/                내려받은 얼굴 모델; Git 제외
 ├── data/                   얼굴 특징 벡터 등 운영 데이터; Git 제외
-├── scripts/                Pi5 모델 설치 도구
+├── scripts/                Pi5 모델 및 WebRTC 설치 도구
 ├── systemd/                Pi5 자동 시작 서비스
+├── config/systemd/         MediaMTX 자동 시작 서비스
 ├── pi4/                    Pi4 clone-and-run Compose 스택
 ├── docs/                   설계, 운영, 진행 상태 문서
 ├── tests/                  Pi5 단위 테스트
@@ -72,9 +76,10 @@ Pi5의 `:8080`은 카메라 입력, 탐지 박스, FPS, 낙상 규칙, 얼굴 �
 화면을 줄이기 위해 visibility, focus, pageshow, online 이벤트와 주기 검사로
 MJPEG 연결을 새로 만든다.
 
-Pi4의 `:8081`은 Pi5에서 오버레이가 끝난 세 MJPEG 영상을 재인코딩 없이
-중계하고, 전체 안전 상태, 최근 사건, 경보 확인·취소를 함께 제공하는 사용자용
-화면이다. 영상은 기본 8 FPS로 요청하여 Pi5 CPU와 무선 LAN 사용량을 제한한다.
+Pi4의 `:8081`은 전체 안전 상태, 최근 사건, 경보 확인·취소를 제공하는 사용자용
+화면이다. 영상 iframe은 Pi4를 거치지 않고 Pi5 `:8889`의 MediaMTX와 WebRTC로
+직접 연결한다. 기본 영상은 H.264 640×360, 8 FPS, 700 kbit/s이며 절전·탭 복귀
+뒤 iframe을 새로 연결한다.
 
 ## 완료된 것
 
@@ -87,10 +92,20 @@ Pi4의 `:8081`은 Pi5에서 오버레이가 끝난 세 MJPEG 영상을 재인코
 - 관리 키로 보호한 얼굴 등록·삭제, 이름 비공개 상태 출력
 - 정면·좌측·우측 다각도 얼굴 템플릿
 - Pi4 MQTT/PostgreSQL/수집/자동화/최종 화면 Compose 구성과 설치 도구
+- Pi5 MediaMTX/WebRTC와 3개 H.264 publisher 설치·자동 시작
+- Pi4 MJPEG Python 프록시 제거, 브라우저-Pi5 직접 영상 경로 구현
+
+## 협업자 커밋 확인
+
+Pi4에서 푸시한 `32e0857 Add collaborator smarthome reference`는
+`reference/collaborator-smarthome/` 아래 참고 코드 7개만 추가한다. 현재 실행되는
+`pi4/` 스택을 덮어쓰지 않는다. 센서 collector·automation 아이디어는 나중에
+선별 통합할 수 있지만, 컨테이너 내부 `localhost` 사용과 별도 웹 구현은 현재
+Compose 구조에 그대로 합치지 않는다.
 
 ## 남은 핵심 작업
 
-1. Pi4에서 저장소를 clone하고 기존 `/opt/smarthome`을 안전하게 마이그레이션
+1. Pi4에서 최신 커밋을 pull하고 `sudo ./pi4/scripts/install.sh`로 WebRTC 화면 반영
 2. Pi5→Pi4 MQTT 실제 왕복, DB 중복 방지, 경보 취소 통합 시험
 3. Pi4와 Pi5 동시 재부팅 후 자동 복구 확인
 4. 스피커/부저의 실제 GPIO 또는 USB 오디오 출력을 Pi4 경보 토픽에 연결
