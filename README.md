@@ -8,7 +8,7 @@ Raspberry Pi 4가 MQTT·이벤트 저장·경보·최종 화면을 담당하는 
 - Pi5 `192.168.1.20:8080`: Camera Module 3, ABKO 웹캠, Dahua RTSP의 개발용 분석 화면
 - Pi4 `192.168.1.10:1883`: MQTT 중앙 브로커
 - Pi4 `192.168.1.10:8081`: 최종 안전 상태와 경보 화면; 영상은 브라우저가 Pi5 WebRTC에 직접 연결
-- 객체: YOLO11n NCNN의 사람 결과만 사용
+- 사람/낙상 입력: YOLO11n-pose NCNN 단일 추론에서 사람 bounding box와 17개 keypoint를 함께 사용
 - 낙상: YOLO11n-pose NCNN 기반 전시용 위험 징후 MVP
 - 얼굴: YuNet + SFace, 정면·좌측·우측 등록, 특징 벡터만 로컬 저장
 
