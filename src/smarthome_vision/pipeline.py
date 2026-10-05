@@ -11,7 +11,7 @@ import numpy as np
 from .events import EventBus
 from .fall_detection import FallTracker
 from .face_registry import FaceRegistry
-from .inference import NcnnObjectDetector, NcnnPoseEstimator
+from .inference import NcnnPoseEstimator
 from .sources import PiCameraSource, RtspSource, UsbCameraSource
 from .sources.base import CameraSource
 
@@ -53,7 +53,6 @@ class CameraWorker:
         self,
         camera_config: dict[str, Any],
         source: CameraSource,
-        detector: NcnnObjectDetector,
         pose_estimator: NcnnPoseEstimator | None,
         face_registry: FaceRegistry | None,
         event_bus: EventBus,
@@ -70,7 +69,6 @@ class CameraWorker:
         self.label = camera_config.get("label", self.camera_id)
         self.source_type = camera_config["type"]
         self.source = source
-        self.detector = detector
         self.pose_estimator = pose_estimator
         self.face_registry = face_registry
         self.event_bus = event_bus
@@ -79,7 +77,6 @@ class CameraWorker:
         self.stream_interval = 1.0 / max(stream_fps, 1.0)
         self.jpeg_quality = jpeg_quality
         self.ai_enabled = bool(camera_config.get("ai_enabled", False))
-        self.analysis_interval = 1.0 / max(float(camera_config.get("analysis_fps", 3)), 0.1)
         self.person_clear_seconds = float(camera_config.get("person_clear_seconds", 3.0))
         self.pose_enabled = bool(
             fall_config.get("enabled", False)
@@ -147,7 +144,6 @@ class CameraWorker:
     def _capture_loop(self) -> None:
         frame_counter = 0
         fps_started = time.monotonic()
-        next_analysis = 0.0
         next_pose_analysis = 0.0
         next_status_publish = 0.0
         next_face_analysis = 0.0
@@ -167,15 +163,19 @@ class CameraWorker:
                 frame_counter = 0
                 fps_started = now
 
-            if self.ai_enabled and now >= next_analysis:
-                self._detections = [
-                    item for item in self.detector.detect(frame) if item["label"] == "person"
-                ]
-                next_analysis = now + self.analysis_interval
-                self._handle_person_state()
-
             if self.pose_enabled and self.pose_estimator is not None and now >= next_pose_analysis:
                 self._poses = self.pose_estimator.estimate(frame)
+                self._detections = [
+                    {
+                        "class_id": 0,
+                        "label": "person",
+                        "confidence": pose["confidence"],
+                        "box": pose["box"],
+                    }
+                    for pose in self._poses
+                ]
+                if self.ai_enabled:
+                    self._handle_person_state()
                 pose_result = self.fall_tracker.update(self._poses, frame.shape, now)
                 next_pose_analysis = now + self.pose_interval
                 if pose_result.event_type:
@@ -382,14 +382,6 @@ class VisionPipeline:
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.event_bus = EventBus(config["mqtt"])
-        inference = config["inference"]
-        self.detector = NcnnObjectDetector(
-            model_dir=inference["model"],
-            input_size=int(inference.get("input_size", 320)),
-            confidence=float(inference.get("confidence", 0.35)),
-            nms_iou=float(inference.get("nms_iou", 0.45)),
-            threads=int(inference.get("threads", 4)),
-        )
         fall_config = config.get("fall_detection", {})
         self.pose_estimator: NcnnPoseEstimator | None = None
         if fall_config.get("enabled", False):
@@ -423,7 +415,6 @@ class VisionPipeline:
             self.workers[camera["id"]] = CameraWorker(
                 camera,
                 source,
-                self.detector,
                 self.pose_estimator,
                 self.face_registry,
                 self.event_bus,
