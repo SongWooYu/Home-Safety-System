@@ -1,0 +1,7 @@
+model,profile,robust,core_only,none
+B_76_sqrt,safety,0,1,2
+B_76_sqrt,balanced,1,0,2
+B_76_sqrt,quiet,1,0,2
+D_125_sqrt,safety,1,0,2
+D_125_sqrt,balanced,1,0,2
+D_125_sqrt,quiet,1,0,2

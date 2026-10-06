@@ -1,0 +1,97 @@
+{
+  "name": "B_76_sqrt_3seed_ensemble",
+  "purpose": "temporal fall-state classification",
+  "ensemble_method": "arithmetic_mean_of_softmax_probabilities",
+  "alert_score": "P(falling) + P(fallen)",
+  "sequence_length": 20,
+  "sampling_fps": 10,
+  "window_seconds": 2.0,
+  "feature_dim": 76,
+  "classes": [
+    "normal",
+    "falling",
+    "fallen"
+  ],
+  "operating_profiles": {
+    "balanced": {
+      "threshold": 0.92,
+      "consecutive": 1,
+      "status": "provisional_default"
+    },
+    "quiet": {
+      "threshold": 0.89,
+      "consecutive": 4,
+      "status": "provisional"
+    },
+    "safety": {
+      "threshold": 0.8,
+      "consecutive": 3,
+      "status": "core_only_not_frozen"
+    }
+  },
+  "members": {
+    "42": {
+      "experiment": "B_76_sqrt_seed_42",
+      "epoch": 8,
+      "val_macro_f1": 0.8332832697961031,
+      "input_size": 76,
+      "hidden_size": 128,
+      "num_layers": 2,
+      "dropout": 0.2,
+      "num_classes": 3,
+      "sequence_length": 20,
+      "class_weight_mode": "sqrt",
+      "class_weights": [
+        0.8207577466964722,
+        1.8568044900894165,
+        0.9033278822898865
+      ],
+      "seed": 42,
+      "file": "models/fall_gru/b76_sqrt_ensemble/seed_42/best.pt",
+      "sha256": "cedefb5abfcaa385f94c39c72c99ec076e8f87fbc24b53caf347468c125ba952",
+      "bytes": 753265
+    },
+    "123": {
+      "experiment": "B_76_sqrt_seed_123",
+      "epoch": 5,
+      "val_macro_f1": 0.832997220552622,
+      "input_size": 76,
+      "hidden_size": 128,
+      "num_layers": 2,
+      "dropout": 0.2,
+      "num_classes": 3,
+      "sequence_length": 20,
+      "class_weight_mode": "sqrt",
+      "class_weights": [
+        0.8207577466964722,
+        1.8568044900894165,
+        0.9033278822898865
+      ],
+      "seed": 123,
+      "file": "models/fall_gru/b76_sqrt_ensemble/seed_123/best.pt",
+      "sha256": "d957b8eb130954b1bd0aa1019cdf00b2660d2e7cd52d88d43b1644a96a4082ee",
+      "bytes": 753265
+    },
+    "2026": {
+      "experiment": "B_76_sqrt_seed_2026",
+      "epoch": 5,
+      "val_macro_f1": 0.8441361892546996,
+      "input_size": 76,
+      "hidden_size": 128,
+      "num_layers": 2,
+      "dropout": 0.2,
+      "num_classes": 3,
+      "sequence_length": 20,
+      "class_weight_mode": "sqrt",
+      "class_weights": [
+        0.8207577466964722,
+        1.8568044900894165,
+        0.9033278822898865
+      ],
+      "seed": 2026,
+      "file": "models/fall_gru/b76_sqrt_ensemble/seed_2026/best.pt",
+      "sha256": "b70c3cab85c08fe638141810454d7d0f3287a805e0b254a605907c724fe9cfbc",
+      "bytes": 753265
+    }
+  }
+}

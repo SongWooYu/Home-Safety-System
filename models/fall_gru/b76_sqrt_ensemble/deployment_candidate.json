@@ -1,0 +1,79 @@
+{
+  "status": "prototype_deployment_candidate",
+  "date": "2026-10-06",
+
+  "architecture": {
+    "name": "B_76_sqrt_3seed_ensemble",
+    "feature_dim": 76,
+    "sequence_length": 20,
+    "sample_fps": 10,
+    "hidden_size": 128,
+    "num_layers": 2,
+    "dropout": 0.2,
+    "classes": [
+      "normal",
+      "falling",
+      "fallen"
+    ],
+    "class_weight_mode": "sqrt_inverse"
+  },
+
+  "ensemble": {
+    "method": "mean_class_probability",
+    "members": [
+      {
+        "seed": 42,
+        "checkpoint": "runs/gru_multiseed/B_76_sqrt/seed_42/best.pt"
+      },
+      {
+        "seed": 123,
+        "checkpoint": "runs/gru_multiseed/B_76_sqrt/seed_123/best.pt"
+      },
+      {
+        "seed": 2026,
+        "checkpoint": "runs/gru_multiseed/B_76_sqrt/seed_2026/best.pt"
+      }
+    ]
+  },
+
+  "pose_reference": {
+    "model": "yolo11n-pose.pt",
+    "imgsz": 960,
+    "confidence": 0.10,
+    "sample_fps": 10,
+    "reference_device": "Apple M4 MPS"
+  },
+
+  "profiles": {
+    "balanced": {
+      "threshold": 0.92,
+      "consecutive": 1,
+      "status": "provisional_default"
+    },
+
+    "quiet": {
+      "threshold": 0.89,
+      "consecutive": 4,
+      "status": "provisional"
+    },
+
+    "safety": {
+      "threshold": 0.80,
+      "consecutive": 3,
+      "status": "core_only_not_frozen"
+    }
+  },
+
+  "methodology_notes": [
+    "Primary event evaluation policy is strict.",
+    "B_76_sqrt was selected over D_125_sqrt based on multi-seed event robustness, not window-level Macro-F1 alone.",
+    "Three independently trained GRUs are combined by arithmetic mean of class probabilities.",
+    "Balanced and Quiet profiles passed local robustness criteria on the development validation set.",
+    "Safety profile was CORE_ONLY and is not considered frozen.",
+    "AI Hub official Validation-derived data has been extensively used for development and model selection.",
+    "The internal test split is not an untouched final test.",
+    "Staged-clip FA/hour must not be interpreted as household false alarms per hour.",
+    "Final thresholds require long continuous ADL negative evaluation.",
+    "Deployment pose resolution/backend must be validated on Raspberry Pi 5."
+  ]
+}
