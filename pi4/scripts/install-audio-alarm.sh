@@ -40,5 +40,6 @@ fi
 
 usermod -aG audio "$service_user"
 systemctl daemon-reload
-systemctl enable --now smarthome-audio-alarm.service
+systemctl enable smarthome-audio-alarm.service
+systemctl restart smarthome-audio-alarm.service
 systemctl --no-pager --full status smarthome-audio-alarm.service
