@@ -86,7 +86,19 @@ class CameraWorker:
         self.pose_interval = 1.0 / max(float(fall_config.get("analysis_fps", 1.5)), 0.1)
         self.status_publish_interval = max(status_publish_interval, 1.0)
         self.face_interval = 1.0 / max(float(face_config.get("analysis_fps", 1.0)), 0.1)
-        self.face_enrollment = bool(camera_config.get("face_enrollment", False))
+        self.face_enabled = bool(
+            face_registry is not None
+            and camera_config.get(
+                "face_recognition",
+                False,
+            )
+        )
+        self.face_enrollment = bool(
+            camera_config.get(
+                "face_enrollment",
+                False,
+            )
+        )
         self.fall_tracker = FallTracker(
             keypoint_confidence=float(fall_config.get("keypoint_confidence", 0.25)),
             transition_window=float(fall_config.get("transition_window", 3.0)),
@@ -97,6 +109,8 @@ class CameraWorker:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._ai_thread: threading.Thread | None = None
+        self._latest_frame: np.ndarray | None = None
         self._jpeg: bytes | None = None
         self._detections: list[dict] = []
         self._poses: list[dict] = []
@@ -112,13 +126,29 @@ class CameraWorker:
         self._last_registration_frame_at = 0.0
 
     def start(self) -> None:
-        self._thread = threading.Thread(target=self._run, name=f"camera-{self.camera_id}", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"camera-{self.camera_id}",
+            daemon=True,
+        )
         self._thread.start()
+
+        if self.pose_enabled or self.face_enabled:
+            self._ai_thread = threading.Thread(
+                target=self._ai_loop,
+                name=f"camera-ai-{self.camera_id}",
+                daemon=True,
+            )
+            self._ai_thread.start()
 
     def stop(self) -> None:
         self._stop.set()
+
         if self._thread is not None:
             self._thread.join(timeout=3)
+
+        if self._ai_thread is not None:
+            self._ai_thread.join(timeout=3)
 
     def _set_error(self, message: str) -> None:
         with self._lock:
@@ -144,91 +174,323 @@ class CameraWorker:
     def _capture_loop(self) -> None:
         frame_counter = 0
         fps_started = time.monotonic()
-        next_pose_analysis = 0.0
+
         next_status_publish = 0.0
-        next_face_analysis = 0.0
         next_stream_frame = 0.0
 
         while not self._stop.is_set():
+
             frame = self.source.read()
             now = time.monotonic()
-            if self.face_enrollment and now - self._last_registration_frame_at >= 0.2:
+
+            # 최신 원본 frame을 AI thread와 공유한다.
+            #
+            # source.read()는 매번 새로운 ndarray를 반환하므로
+            # 별도 copy를 하지 않아 capture 부하를 줄인다.
+            with self._lock:
+                self._latest_frame = frame
+
+            # 얼굴 등록용 frame은 낮은 주기로만 copy.
+            if (
+                self.face_enrollment
+                and now
+                - self._last_registration_frame_at
+                >= 0.2
+            ):
                 with self._lock:
-                    self._registration_frame = frame.copy()
-                self._last_registration_frame_at = now
+                    self._registration_frame = (
+                        frame.copy()
+                    )
+
+                self._last_registration_frame_at = (
+                    now
+                )
+
+            # 실제 capture throughput 측정.
             frame_counter += 1
-            elapsed = now - fps_started
+
+            elapsed = (
+                now
+                - fps_started
+            )
+
             if elapsed >= 2.0:
-                self._capture_fps = frame_counter / elapsed
+
+                self._capture_fps = (
+                    frame_counter
+                    / elapsed
+                )
+
                 frame_counter = 0
                 fps_started = now
 
-            if self.pose_enabled and self.pose_estimator is not None and now >= next_pose_analysis:
-                self._poses = self.pose_estimator.estimate(frame)
-                self._detections = [
-                    {
-                        "class_id": 0,
-                        "label": "person",
-                        "confidence": pose["confidence"],
-                        "box": pose["box"],
-                    }
-                    for pose in self._poses
-                ]
-                if self.ai_enabled:
-                    self._handle_person_state()
-                pose_result = self.fall_tracker.update(self._poses, frame.shape, now)
-                next_pose_analysis = now + self.pose_interval
-                if pose_result.event_type:
-                    severity = "critical" if pose_result.event_type == "fall_confirmed" else "warning"
-                    if pose_result.event_type == "fall_cleared":
-                        severity = "normal"
-                    self.event_bus.emit(
-                        self.camera_id,
-                        pose_result.event_type,
-                        pose_result.confidence,
-                        {
-                            "severity": severity,
-                            "pose_state": pose_result.pose_state,
-                            "source_type": self.source_type,
-                            **pose_result.metrics,
-                        },
-                    )
-
-            if self.face_registry is not None and now >= next_face_analysis:
-                try:
-                    self._faces = self.face_registry.identify(frame)
-                except Exception:
-                    self._faces = []
-                next_face_analysis = now + self.face_interval
-
+            # Display/JPEG path.
+            #
+            # AI inference와 완전히 독립되어 있으므로
+            # Pose/Face가 느려져도 stream FPS를 막지 않는다.
             if now >= next_stream_frame:
+
                 annotated = frame.copy()
-                self._draw_overlay(annotated)
+
+                self._draw_overlay(
+                    annotated
+                )
+
                 if (
-                    annotated.shape[1] != self.stream_width
-                    or annotated.shape[0] != self.stream_height
+                    annotated.shape[1]
+                    != self.stream_width
+                    or annotated.shape[0]
+                    != self.stream_height
                 ):
+
                     annotated = cv2.resize(
                         annotated,
-                        (self.stream_width, self.stream_height),
+                        (
+                            self.stream_width,
+                            self.stream_height,
+                        ),
                         interpolation=cv2.INTER_AREA,
                     )
+
                 ok, encoded = cv2.imencode(
                     ".jpg",
                     annotated,
-                    [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality],
+                    [
+                        int(
+                            cv2.IMWRITE_JPEG_QUALITY
+                        ),
+                        self.jpeg_quality,
+                    ],
                 )
+
                 if ok:
+
                     with self._lock:
-                        self._jpeg = encoded.tobytes()
+
+                        self._jpeg = (
+                            encoded.tobytes()
+                        )
+
                         self._online = True
                         self._error = None
                         self._last_frame_at = now
-                next_stream_frame = now + self.stream_interval
+
+                next_stream_frame = (
+                    now
+                    + self.stream_interval
+                )
 
             if now >= next_status_publish:
-                self.event_bus.publish_status(self.camera_id, self.status_dict())
-                next_status_publish = now + self.status_publish_interval
+
+                self.event_bus.publish_status(
+                    self.camera_id,
+                    self.status_dict(),
+                )
+
+                next_status_publish = (
+                    now
+                    + self.status_publish_interval
+                )
+
+    def _ai_loop(self) -> None:
+
+        next_pose_analysis = 0.0
+        next_face_analysis = 0.0
+
+        while not self._stop.is_set():
+
+            now = time.monotonic()
+
+            with self._lock:
+
+                frame = (
+                    self._latest_frame
+                )
+
+                online = (
+                    self._online
+                )
+
+                last_frame_at = (
+                    self._last_frame_at
+                )
+
+            if (
+                frame is None
+                or not online
+                or last_frame_at is None
+                or now - last_frame_at > 1.0
+            ):
+
+                self._stop.wait(
+                    0.01
+                )
+
+                continue
+
+            did_work = False
+
+
+            # --------------------------------------
+            # Pose / Fall
+            # --------------------------------------
+
+            if (
+                self.pose_enabled
+                and self.pose_estimator
+                is not None
+                and now
+                >= next_pose_analysis
+            ):
+
+                # start-to-start scheduling:
+                # inference 시간이 interval보다 짧으면
+                # 정확히 목표 Hz에 가깝게 동작한다.
+                next_pose_analysis = (
+                    now
+                    + self.pose_interval
+                )
+
+                try:
+
+                    poses = (
+                        self.pose_estimator
+                        .estimate(
+                            frame
+                        )
+                    )
+
+                    detections = [
+                        {
+                            "class_id": 0,
+                            "label": "person",
+                            "confidence":
+                                pose[
+                                    "confidence"
+                                ],
+                            "box":
+                                pose[
+                                    "box"
+                                ],
+                        }
+                        for pose
+                        in poses
+                    ]
+
+                    with self._lock:
+
+                        self._poses = poses
+                        self._detections = (
+                            detections
+                        )
+
+                    if self.ai_enabled:
+
+                        self._handle_person_state()
+
+                    pose_result = (
+                        self.fall_tracker
+                        .update(
+                            poses,
+                            frame.shape,
+                            now,
+                        )
+                    )
+
+                    if pose_result.event_type:
+
+                        severity = (
+                            "critical"
+                            if (
+                                pose_result
+                                .event_type
+                                == "fall_confirmed"
+                            )
+                            else "warning"
+                        )
+
+                        if (
+                            pose_result
+                            .event_type
+                            == "fall_cleared"
+                        ):
+                            severity = (
+                                "normal"
+                            )
+
+                        self.event_bus.emit(
+                            self.camera_id,
+                            pose_result.event_type,
+                            pose_result.confidence,
+                            {
+                                "severity":
+                                    severity,
+
+                                "pose_state":
+                                    pose_result.pose_state,
+
+                                "source_type":
+                                    self.source_type,
+
+                                **pose_result.metrics,
+                            },
+                        )
+
+                except Exception as exc:
+
+                    with self._lock:
+                        self._error = (
+                            "pose: "
+                            + str(exc)
+                        )
+
+                did_work = True
+
+
+            # --------------------------------------
+            # Face recognition
+            # --------------------------------------
+
+            if (
+                self.face_enabled
+                and self.face_registry
+                is not None
+                and now
+                >= next_face_analysis
+            ):
+
+                next_face_analysis = (
+                    now
+                    + self.face_interval
+                )
+
+                try:
+
+                    faces = (
+                        self.face_registry
+                        .identify(
+                            frame
+                        )
+                    )
+
+                except Exception:
+
+                    faces = []
+
+                with self._lock:
+
+                    self._faces = (
+                        faces
+                    )
+
+                did_work = True
+
+
+            if not did_work:
+
+                self._stop.wait(
+                    0.005
+                )
 
     def _handle_person_state(self) -> None:
         people = [item for item in self._detections if item["label"] == "person"]
