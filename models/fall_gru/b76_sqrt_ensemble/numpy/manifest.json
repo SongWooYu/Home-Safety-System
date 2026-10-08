@@ -1,0 +1,202 @@
+{
+  "format": "numpy_state_dict_v1",
+  "architecture": "B_76_sqrt_3seed_ensemble",
+  "sequence_length": 20,
+  "sample_fps": 10,
+  "feature_dim": 76,
+  "hidden_size": 128,
+  "num_layers": 2,
+  "classes": [
+    "normal",
+    "falling",
+    "fallen"
+  ],
+  "members": {
+    "42": {
+      "file": "seed_42.npz",
+      "sha256": "d3b93cf0fd94fff73312e6fc3ac994714fae163ef101e8cc11a206a303ab9cc3",
+      "epoch": 8,
+      "val_macro_f1": 0.8332832697961031,
+      "keys": {
+        "input_norm__weight": [
+          76
+        ],
+        "input_norm__bias": [
+          76
+        ],
+        "gru__weight_ih_l0": [
+          384,
+          76
+        ],
+        "gru__weight_hh_l0": [
+          384,
+          128
+        ],
+        "gru__bias_ih_l0": [
+          384
+        ],
+        "gru__bias_hh_l0": [
+          384
+        ],
+        "gru__weight_ih_l1": [
+          384,
+          128
+        ],
+        "gru__weight_hh_l1": [
+          384,
+          128
+        ],
+        "gru__bias_ih_l1": [
+          384
+        ],
+        "gru__bias_hh_l1": [
+          384
+        ],
+        "head__0__weight": [
+          128
+        ],
+        "head__0__bias": [
+          128
+        ],
+        "head__2__weight": [
+          64,
+          128
+        ],
+        "head__2__bias": [
+          64
+        ],
+        "head__5__weight": [
+          3,
+          64
+        ],
+        "head__5__bias": [
+          3
+        ]
+      }
+    },
+    "123": {
+      "file": "seed_123.npz",
+      "sha256": "bd0a38fbb9464148da108e3a11176313e250fb937d6b98f600e558ae502eb56a",
+      "epoch": 5,
+      "val_macro_f1": 0.832997220552622,
+      "keys": {
+        "input_norm__weight": [
+          76
+        ],
+        "input_norm__bias": [
+          76
+        ],
+        "gru__weight_ih_l0": [
+          384,
+          76
+        ],
+        "gru__weight_hh_l0": [
+          384,
+          128
+        ],
+        "gru__bias_ih_l0": [
+          384
+        ],
+        "gru__bias_hh_l0": [
+          384
+        ],
+        "gru__weight_ih_l1": [
+          384,
+          128
+        ],
+        "gru__weight_hh_l1": [
+          384,
+          128
+        ],
+        "gru__bias_ih_l1": [
+          384
+        ],
+        "gru__bias_hh_l1": [
+          384
+        ],
+        "head__0__weight": [
+          128
+        ],
+        "head__0__bias": [
+          128
+        ],
+        "head__2__weight": [
+          64,
+          128
+        ],
+        "head__2__bias": [
+          64
+        ],
+        "head__5__weight": [
+          3,
+          64
+        ],
+        "head__5__bias": [
+          3
+        ]
+      }
+    },
+    "2026": {
+      "file": "seed_2026.npz",
+      "sha256": "54ddd7ef27a1341e2ba2df96961e2c9aed7391c706e82c67219ee57596fb8f4c",
+      "epoch": 5,
+      "val_macro_f1": 0.8441361892546996,
+      "keys": {
+        "input_norm__weight": [
+          76
+        ],
+        "input_norm__bias": [
+          76
+        ],
+        "gru__weight_ih_l0": [
+          384,
+          76
+        ],
+        "gru__weight_hh_l0": [
+          384,
+          128
+        ],
+        "gru__bias_ih_l0": [
+          384
+        ],
+        "gru__bias_hh_l0": [
+          384
+        ],
+        "gru__weight_ih_l1": [
+          384,
+          128
+        ],
+        "gru__weight_hh_l1": [
+          384,
+          128
+        ],
+        "gru__bias_ih_l1": [
+          384
+        ],
+        "gru__bias_hh_l1": [
+          384
+        ],
+        "head__0__weight": [
+          128
+        ],
+        "head__0__bias": [
+          128
+        ],
+        "head__2__weight": [
+          64,
+          128
+        ],
+        "head__2__bias": [
+          64
+        ],
+        "head__5__weight": [
+          3,
+          64
+        ],
+        "head__5__bias": [
+          3
+        ]
+      }
+    }
+  }
+}
