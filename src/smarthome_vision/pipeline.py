@@ -622,18 +622,26 @@ class CameraWorker:
                         transitions_present = any(
                             track.get("transition") for track in temporal_tracks
                         )
+                        rule_transition_present = pose_result.event_type is not None
                         if self.shadow_log is not None:
                             self.shadow_log.maybe_write(
                                 {
-                                    "schema_version": "1.0",
+                                    "schema_version": "1.1",
                                     "camera_id": self.camera_id,
                                     "frame_seq": frame_seq,
                                     "pose_input_age_ms": round(input_age_ms, 3),
                                     "pose_inference_ms": round(pose_latency_ms, 3),
+                                    "rule": {
+                                        "pose_state": pose_result.pose_state,
+                                        "fall_state": pose_result.fall_state,
+                                        "confidence": round(pose_result.confidence, 4),
+                                        "event_type": pose_result.event_type,
+                                        "metrics": pose_result.metrics,
+                                    },
                                     "tracks": temporal_tracks,
                                 },
                                 now=pose_finished,
-                                force=transitions_present,
+                                force=transitions_present or rule_transition_present,
                             )
 
                         for track in temporal_tracks:
@@ -1309,7 +1317,11 @@ class VisionPipeline:
                 config.get("input_format", "MJPG"),
             )
         if source_type == "rtsp":
-            return RtspSource(config.get("url", ""), config.get("transport", "tcp"))
+            return RtspSource(
+                config.get("url", ""),
+                config.get("transport", "tcp"),
+                bool(config.get("low_latency", False)),
+            )
         raise ValueError(f"Unsupported camera source: {source_type}")
 
     def start(self) -> None:

@@ -254,7 +254,7 @@ Pi5 WebRTC는 `smarthome-mediamtx.service`가 enabled/active이며, 시청자가
 
 ## 9. 테스트 상태
 
-Pi5에서 다음 명령으로 20개 테스트가 통과했다.
+Pi5에서 다음 명령으로 24개 테스트가 통과했다.
 
 ```bash
 cd /home/pi/Home-Safety-System
@@ -265,6 +265,8 @@ PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 
 - 얼굴 등록 API 권한 분리와 다각도 template
 - rule detector 기본 상태 전이
+- 발목이 보이는 바닥 앉음의 무릎 각도/엉덩이-무릎 높이 판정
+- Pi4 MQTT 스피커 경보 payload 처리
 - Pi4 WebRTC 화면/health 계약
 - B76 feature shape와 global feature
 - tracker motion prediction
@@ -291,7 +293,9 @@ PyTorch parity 결과를 사용하며, Pi5에는 배포에 필요한 런타임�
 ### 전체 시스템 담당과 함께 할 일
 
 1. Pi4 화면에서 현재/시험 경보를 관리 키로 취소하는 흐름 확인
-2. `home/safety/fall/alarm`을 실제 스피커/부저 출력에 연결
+2. ~~`home/safety/fall/alarm`을 실제 스피커/부저 출력에 연결~~
+   - Pi4 3.5 mm 출력의 `smarthome-audio-alarm.service`로 구현·실기 시험 완료
+   - `active=true`에서 반복 재생, 화면 취소/해제의 `active=false`에서 즉시 정지
 3. Pi4 로컬에서 Compose 상태·로그와 DB 중복 SQL 확인
 4. Pi4/Pi5 동시 재부팅 후 3분 이내 자동 복구 시험
 5. 세 WebRTC 영상 + Pi4 UI + Pi5 AI를 2시간 유지하며 재시작·메모리 증가 확인
@@ -338,3 +342,20 @@ Hailo 전 소프트웨어 기반은 구현됐다. 다만 비전 기능의 **전�
 - Pi4 경보 취소·스피커·동시 재부팅·2시간 soak test
 
 현재 상태는 `CPU 실시간 shadow 통합 완료, 낙상 경보 임계값 검증 중`으로 표현한다.
+
+
+## 13. 2026-10-08 현장 준비 보완
+
+- Dahua RTSP에는 FFmpeg `nobuffer`, `low_delay`, `max_delay=0`을 적용했다.
+- Dahua 메인스트림은 1920×1080, H.264 High, 15 FPS, CBR 4096 kbps를 유지하고
+  GOP를 30에서 15로 줄여 키프레임 간격을 2초에서 1초로 줄였다.
+- 대시보드의 카메라 `상태`는 낙상 상태가 아니라 연결 상태였으므로 `연결`로
+  이름을 바꿨다. `지연`도 종단 지연이 아니라 Pi5 최신 프레임 age이므로 명확히
+  표시한다.
+- Rule은 가장 큰 사람 1명, GRU는 사람별 track 중 alert score가 가장 높은 track을
+  표시하므로 서로 다른 사람을 가리킬 수 있다.
+- GRU의 `falling`/`fallen` 클래스는 곧바로 경보가 아니다. 임계값 연속 충족 여부를
+  별도 Shadow 배지로 표시하며 GRU 결과는 아직 MQTT로 전송하지 않는다.
+- Shadow JSONL 스키마 1.1은 같은 시점의 Rule 결과와 GRU track을 함께 기록한다.
+- 현장 정의·카메라 위치·TP/FP/FN/지연 기록법은
+  `docs/FIELD_FALL_VALIDATION.md`를 기준으로 한다.

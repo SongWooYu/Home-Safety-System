@@ -47,6 +47,8 @@ def summarize(records: list[dict]) -> dict:
     timestamps = []
     track_ids = set()
     transitions = Counter()
+    rule_events = Counter()
+    rule_states = Counter()
     quality_flags = Counter()
     ready = 0
     eligible = 0
@@ -59,6 +61,11 @@ def summarize(records: list[dict]) -> dict:
             timestamps.append(datetime.fromisoformat(timestamp))
         if record.get("pose_inference_ms") is not None:
             inference_ms.append(float(record["pose_inference_ms"]))
+        rule = record.get("rule") or {}
+        if rule.get("event_type"):
+            rule_events[str(rule["event_type"])] += 1
+        if rule.get("fall_state"):
+            rule_states[str(rule["fall_state"])] += 1
         for track in record.get("tracks", []):
             track_ids.add((record.get("camera_id"), track.get("track_id")))
             transition = track.get("transition")
@@ -87,6 +94,9 @@ def summarize(records: list[dict]) -> dict:
             round(sum(inference_ms) / len(inference_ms), 3) if inference_ms else None
         ),
         "transitions": dict(transitions),
+        "gru_transitions": dict(transitions),
+        "rule_events": dict(rule_events),
+        "rule_state_samples": dict(rule_states),
         "quality_flags": dict(quality_flags),
     }
 

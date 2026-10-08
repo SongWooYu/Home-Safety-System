@@ -1,0 +1,31 @@
+[Unit]
+Description=Home Safety MQTT speaker alarm
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+SupplementaryGroups=audio
+Environment=MQTT_HOST=127.0.0.1
+Environment=MQTT_PORT=1883
+Environment=ALARM_TOPIC=home/safety/fall/alarm
+Environment=ALARM_AUDIO_DEVICE=plughw:CARD=Headphones,DEV=0
+EnvironmentFile=-/etc/default/smarthome-audio-alarm
+RuntimeDirectory=smarthome-audio-alarm
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/python3 /usr/local/lib/home-safety/audio_alarm.py
+Restart=always
+RestartSec=3
+TimeoutStopSec=5
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/smarthome-audio-alarm
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

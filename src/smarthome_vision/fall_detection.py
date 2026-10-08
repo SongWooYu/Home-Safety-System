@@ -21,6 +21,8 @@ class FallTracker:
     RIGHT_SHOULDER = 6
     LEFT_HIP = 11
     RIGHT_HIP = 12
+    LEFT_KNEE = 13
+    RIGHT_KNEE = 14
     LEFT_ANKLE = 15
     RIGHT_ANKLE = 16
 
@@ -135,6 +137,8 @@ class FallTracker:
         keypoints = pose["keypoints"]
 
         torso_angle = self._torso_angle(keypoints)
+        knee_angle = self._mean_knee_angle(keypoints)
+        hip_knee_drop = self._hip_knee_drop(keypoints, height)
         visible_confidences = [
             point[2] for point in keypoints if point[2] >= self.keypoint_confidence
         ]
@@ -158,7 +162,15 @@ class FallTracker:
                 max(aspect_ratio / 1.6, (torso_angle or 0.0) / 90.0),
             )
         elif upright_by_box and upright_by_torso:
-            pose_state = "standing" if self._ankles_visible(keypoints) else "sitting"
+            sitting_by_legs = (
+                (knee_angle is not None and knee_angle <= 145.0)
+                or (hip_knee_drop is not None and hip_knee_drop <= 0.18)
+            )
+            pose_state = (
+                "sitting"
+                if sitting_by_legs or not self._ankles_visible(keypoints)
+                else "standing"
+            )
             geometry_score = min(1.0, height / max(1.0, frame_height * 0.55))
         else:
             pose_state = "sitting"
@@ -171,6 +183,11 @@ class FallTracker:
         metrics = {
             "aspect_ratio": round(aspect_ratio, 3),
             "torso_angle": round(torso_angle if torso_angle is not None else -1.0, 1),
+            "knee_angle": round(knee_angle if knee_angle is not None else -1.0, 1),
+            "hip_knee_drop": round(
+                hip_knee_drop if hip_knee_drop is not None else -1.0,
+                3,
+            ),
             "center_y": round(center_y, 3),
             "keypoint_quality": round(keypoint_quality, 3),
         }
@@ -196,3 +213,62 @@ class FallTracker:
             keypoints[self.LEFT_ANKLE][2] >= self.keypoint_confidence
             or keypoints[self.RIGHT_ANKLE][2] >= self.keypoint_confidence
         )
+
+    def _mean_knee_angle(self, keypoints: list[list[float]]) -> float | None:
+        angles = []
+        for hip_index, knee_index, ankle_index in (
+            (self.LEFT_HIP, self.LEFT_KNEE, self.LEFT_ANKLE),
+            (self.RIGHT_HIP, self.RIGHT_KNEE, self.RIGHT_ANKLE),
+        ):
+            if any(
+                keypoints[index][2] < self.keypoint_confidence
+                for index in (hip_index, knee_index, ankle_index)
+            ):
+                continue
+            angles.append(
+                self._joint_angle(
+                    keypoints[hip_index],
+                    keypoints[knee_index],
+                    keypoints[ankle_index],
+                )
+            )
+        return sum(angles) / len(angles) if angles else None
+
+    def _hip_knee_drop(
+        self,
+        keypoints: list[list[float]],
+        box_height: float,
+    ) -> float | None:
+        drops = []
+        for hip_index, knee_index in (
+            (self.LEFT_HIP, self.LEFT_KNEE),
+            (self.RIGHT_HIP, self.RIGHT_KNEE),
+        ):
+            if any(
+                keypoints[index][2] < self.keypoint_confidence
+                for index in (hip_index, knee_index)
+            ):
+                continue
+            drops.append(
+                abs(keypoints[knee_index][1] - keypoints[hip_index][1])
+                / max(1.0, box_height)
+            )
+        return sum(drops) / len(drops) if drops else None
+
+    @staticmethod
+    def _joint_angle(
+        first: list[float],
+        center: list[float],
+        third: list[float],
+    ) -> float:
+        first_vector = (first[0] - center[0], first[1] - center[1])
+        third_vector = (third[0] - center[0], third[1] - center[1])
+        first_length = math.hypot(*first_vector)
+        third_length = math.hypot(*third_vector)
+        if first_length <= 1e-6 or third_length <= 1e-6:
+            return 180.0
+        cosine = (
+            first_vector[0] * third_vector[0]
+            + first_vector[1] * third_vector[1]
+        ) / (first_length * third_length)
+        return math.degrees(math.acos(max(-1.0, min(1.0, cosine))))

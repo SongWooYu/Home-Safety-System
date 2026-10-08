@@ -17,6 +17,8 @@ def make_pose(box, horizontal=False, torso_visible=True):
         points[6] = [85.0, 55.0, 0.9]
         points[11] = [68.0, 115.0, 0.9]
         points[12] = [82.0, 115.0, 0.9]
+        points[13] = [68.0, 160.0, 0.9]
+        points[14] = [82.0, 160.0, 0.9]
         points[15] = [68.0, 205.0, 0.9]
         points[16] = [82.0, 205.0, 0.9]
     if not torso_visible:
@@ -67,6 +69,20 @@ class FallTrackerTest(unittest.TestCase):
         self.assertEqual(result.pose_state, "sitting")
         self.assertEqual(result.fall_state, "normal")
         self.assertIsNone(result.event_type)
+
+    def test_floor_sitting_with_visible_ankles_is_sitting(self):
+        tracker = FallTracker()
+        pose = make_pose([35, 25, 120, 220])
+        pose["keypoints"][13] = [108.0, 145.0, 0.9]
+        pose["keypoints"][14] = [42.0, 145.0, 0.9]
+        pose["keypoints"][15] = [78.0, 135.0, 0.9]
+        pose["keypoints"][16] = [72.0, 135.0, 0.9]
+
+        result = tracker.update([pose], (240, 320, 3), 0.0)
+
+        self.assertEqual(result.pose_state, "sitting")
+        self.assertEqual(result.fall_state, "normal")
+        self.assertLessEqual(result.metrics["hip_knee_drop"], 0.18)
 
 
 if __name__ == "__main__":

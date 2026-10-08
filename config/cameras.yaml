@@ -234,3 +234,6 @@ cameras:
 
     transport:
       tcp
+
+    # FFmpeg가 과거 RTSP 프레임을 큐에 쌓지 않도록 한다.
+    low_latency: true

@@ -1274,7 +1274,7 @@ select{
 
             <div class="stat">
               <div class="stat-label">
-                상태
+                연결
               </div>
 
               <div
@@ -1298,7 +1298,7 @@ select{
 
             <div class="stat">
               <div class="stat-label">
-                지연
+                Pi5 프레임 age
               </div>
 
               <div
@@ -1346,7 +1346,7 @@ select{
       </div>
 
       <span class="badge shadow">
-        GRU SHADOW MODE
+        GRU SHADOW · MQTT 미전송
       </span>
 
     </div>
@@ -1376,7 +1376,7 @@ select{
             <div class="metric">
 
               <div class="metric-name">
-                낙상 상태
+                Rule 경보 상태
               </div>
 
               <div
@@ -1390,7 +1390,7 @@ select{
             <div class="metric">
 
               <div class="metric-name">
-                Rule Confidence
+                자세 기하 점수
               </div>
 
               <div
@@ -1404,7 +1404,7 @@ select{
             <div class="metric">
 
               <div class="metric-name">
-                규칙 기반 자세
+                가장 큰 사람 Rule 자세
               </div>
 
               <div
@@ -1418,7 +1418,7 @@ select{
             <div class="metric">
 
               <div class="metric-name">
-                Person
+                Pose 사람 수
               </div>
 
               <div
@@ -1452,9 +1452,9 @@ select{
           </div>
 
           <div class="notice">
-            자세 값은 현재 단순 규칙 기반 참고값입니다.
-            Standing 상태에서도 Sitting으로 분류될 수 있으며
-            낙상 최종 판단값으로 사용하지 않습니다.
+            Rule은 화면에서 가장 큰 사람 1명을 기하 규칙으로 판정합니다.
+            자세 기하 점수는 낙상 확률이 아니며, 실제 MQTT 경보는
+            Rule 경보 상태가 '낙상 확인'일 때만 발생합니다.
           </div>
 
         </div>
@@ -1467,7 +1467,7 @@ select{
         <div class="panel-head">
 
           <div class="panel-title">
-            Temporal GRU
+            Temporal GRU (사람별)
           </div>
 
           <span
@@ -1484,7 +1484,7 @@ select{
 
             <div class="gru-box">
               <label>
-                State
+                최신 모델 분류
               </label>
 
               <strong
@@ -1495,7 +1495,7 @@ select{
 
             <div class="gru-box">
               <label>
-                Alert Score
+                Falling + Fallen
               </label>
 
               <strong
@@ -1506,7 +1506,7 @@ select{
 
             <div class="gru-box">
               <label>
-                Threshold
+                Shadow 기준
               </label>
 
               <strong
@@ -1517,7 +1517,7 @@ select{
 
             <div class="gru-box">
               <label>
-                Best Track
+                비교 Track
               </label>
 
               <strong
@@ -1533,7 +1533,7 @@ select{
             <div class="score-head">
 
               <span>
-                GRU Alert Score
+                GRU Falling + Fallen
               </span>
 
               <span
@@ -1588,8 +1588,9 @@ select{
           </div>
 
           <div class="notice shadow-notice">
-            이 값은 연구용 Shadow 결과입니다.
-            현재 실제 낙상 이벤트 및 MQTT 경보에는 사용하지 않습니다.
+            GRU의 '최신 모델 분류'는 가장 점수가 높은 클래스일 뿐 경보가 아닙니다.
+            Falling + Fallen 점수가 기준을 연속 충족해야 Shadow 경보가 되며,
+            현재 실제 MQTT 경보에는 전송하지 않습니다.
           </div>
 
         </div>
@@ -2257,6 +2258,19 @@ function renderCamera(
     camera.fall_state
     === "confirmed";
 
+  const suspectedFall =
+    camera.fall_state
+    === "suspected";
+
+  const gruShadowAlert =
+    (
+      camera.temporal_tracks
+      || []
+    ).some(
+      track =>
+        track.shadow_alert
+    );
+
   card.classList.toggle(
     "alert",
     actualFall
@@ -2283,7 +2297,23 @@ function renderCamera(
       "badge danger";
 
     badge.textContent =
-      "낙상 감지";
+      "RULE 낙상";
+
+  }else if(suspectedFall){
+
+    badge.className =
+      "badge warning";
+
+    badge.textContent =
+      "RULE 의심";
+
+  }else if(gruShadowAlert){
+
+    badge.className =
+      "badge shadow";
+
+    badge.textContent =
+      "GRU SHADOW 기준 충족";
 
   }else if(
     camera.person_count
@@ -2363,7 +2393,7 @@ function renderCamera(
     `state-${id}`
   ).textContent =
     camera.online
-      ? "정상"
+      ? "온라인"
       : "오프라인";
 
 
@@ -2554,23 +2584,6 @@ function renderFallAI(
   }
 
 
-  document.getElementById(
-    "gru-mode"
-  ).textContent =
-    (
-      camera.temporal_mode
-      || "off"
-    ).toUpperCase();
-
-
-  document.getElementById(
-    "gru-state"
-  ).textContent =
-    stateLabel(
-      camera.temporal_state
-    );
-
-
   const score =
     Number(
       camera.temporal_alert_score
@@ -2580,6 +2593,54 @@ function renderFallAI(
   const temporalTracks =
     camera.temporal_tracks
     || [];
+
+  const shadowAlert =
+    temporalTracks.some(
+      track =>
+        track.shadow_alert
+    );
+
+  const gruMode =
+    document.getElementById(
+      "gru-mode"
+    );
+
+  gruMode.className =
+    shadowAlert
+      ? "badge warning"
+      : "badge shadow";
+
+  gruMode.textContent =
+    (
+      camera.temporal_mode
+      || "off"
+    ).toUpperCase()
+    + (
+      shadowAlert
+        ? " · 기준 충족"
+        : " · 기준 미달"
+    );
+
+
+  const temporalClass =
+    stateLabel(
+      camera.temporal_state
+    );
+
+  const classNeedsThreshold =
+    camera.temporal_state
+    === "falling"
+    || camera.temporal_state
+    === "fallen";
+
+  document.getElementById(
+    "gru-state"
+  ).textContent =
+    classNeedsThreshold
+    && !shadowAlert
+      ? `${temporalClass} (경보 아님)`
+      : temporalClass;
+
 
   const bestTrack =
     temporalTracks.find(

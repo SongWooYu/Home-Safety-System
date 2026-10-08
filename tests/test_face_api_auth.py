@@ -79,6 +79,16 @@ class FaceApiAuthorizationTest(unittest.TestCase):
         self.assertIn("bestTrack.threshold", html)
         self.assertNotIn("score >= .92", html)
 
+    def test_dashboard_distinguishes_connection_rule_and_gru_states(self):
+        response = self.client.get("/")
+
+        html = response.get_data(as_text=True)
+        self.assertIn("Pi5 프레임 age", html)
+        self.assertIn("RULE 낙상", html)
+        self.assertIn("GRU SHADOW 기준 충족", html)
+        self.assertIn("MQTT 미전송", html)
+        self.assertIn("자세 기하 점수는 낙상 확률이 아니며", html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -65,7 +65,11 @@ def dahua_config(config: dict) -> dict:
 
 
 def capture_frames(camera: dict, count: int) -> list[np.ndarray]:
-    source = RtspSource(camera["url"], camera.get("transport", "tcp"))
+    source = RtspSource(
+        camera["url"],
+        camera.get("transport", "tcp"),
+        bool(camera.get("low_latency", False)),
+    )
     frames: list[np.ndarray] = []
     source.open()
     try:

@@ -24,9 +24,14 @@ sudo ./pi4/scripts/install.sh
 ```
 
 스크립트는 Docker/Compose가 없으면 Ubuntu/Debian 패키지로 설치하고, 무작위
-PostgreSQL 비밀번호와 관리자 키를 `pi4/.env`에 생성한다. DB는
-`/srv/smarthome-data/postgres`에, MQTT 지속 데이터는 저장소의
-`pi4/runtime/mqtt/data`에 둔다. 둘 다 Git에서 제외된다.
+PostgreSQL 비밀번호와 관리자 키를 `pi4/.env`에 생성한다. `.env`는
+`root:<운영자 그룹>` 0640으로 설정되어 운영 사용자가 status/Compose 명령을
+실행할 수 있다. DB는 `/srv/smarthome-data/postgres`에, MQTT 지속 데이터는
+저장소의 `pi4/runtime/mqtt/data`에 둔다. 둘 다 Git에서 제외된다.
+
+기본 설치는 `alsa-utils`, `mosquitto-clients`와 Pi4 호스트의
+`smarthome-audio-alarm.service`도 설치한다. 스피커를 쓰지 않을 때만
+`sudo INSTALL_AUDIO_ALARM=0 ./pi4/scripts/install.sh`로 생략한다.
 
 설치 후:
 
@@ -78,6 +83,7 @@ sudo ./pi4/scripts/install.sh --migrate-legacy /opt/smarthome
 | collector | Python 3.12 | 없음 | `home/#` 수집·정규화 |
 | automation | Python 3.12 | 없음 | 낙상 상태와 경보 토픽 |
 | web | Flask/Gunicorn | 8081 | 사용자 화면, 상태 API, 경보 취소(영상 바이트 미경유) |
+| audio alarm | 호스트 systemd + ALSA | 없음 | MQTT alarm을 3.5 mm 스피커로 재생 |
 
 모든 컨테이너는 `restart: unless-stopped`다. Docker 서비스가 부팅 때 시작하면
 Pi4 재부팅 후 자동 복구된다.
@@ -144,8 +150,14 @@ payload SHA-256을 대체 키로 사용한다.
 | `home/safety/fall/command` | UI/음성/버튼→Pi4 | 아니오 | `{"action":"cancel"}` |
 
 스피커나 부저는 `home/safety/fall/alarm`을 구독해 `active=true`일 때 작동하고,
-false일 때 즉시 멈추게 구현한다. 현재 저장소에는 실제 하드웨어 드라이버가 아직
-없다.
+false일 때 즉시 멈춘다. 현재 구현은 Pi4의 `bcm2835 Headphones`(3.5 mm)를
+`aplay`로 사용한다. 별도 장치를 쓰면 `/etc/default/smarthome-audio-alarm`에
+`ALARM_AUDIO_DEVICE=<ALSA 장치>`를 지정하고 서비스를 재시작한다.
+
+```bash
+systemctl status smarthome-audio-alarm.service
+journalctl -u smarthome-audio-alarm.service -n 50 --no-pager
+```
 
 ## 통합 시험
 
@@ -155,8 +167,8 @@ false일 때 즉시 멈추게 구현한다. 현재 저장소에는 실제 하드
 - 세 Pi5 retain 상태가 Pi4 `overview`에 반영
 - 비경보 `integration_probe` MQTT→collector→PostgreSQL→웹 API 왕복 성공
 - 같은 `event_id`를 QoS 1로 2회 발행해도 `vision_event`에는 1행만 저장
-- Pi4 SSH는 키/비밀번호 인증 실패 상태이므로 아래 Docker/SQL 명령은 Pi4 로컬
-  터미널 또는 인증된 VS Code 세션에서 실행해야 함
+- Pi5 전용 키 `~/.ssh/home_safety_pi4_ed25519`로 `pi@192.168.1.10` 접속 확인
+- Pi4 스피커 MQTT true/false 실기 시험과 취소 시 재생 종료 확인
 
 실제 `fall_confirmed` smoke test는 경보를 울리고 DB를 변경한다. 현장에 사람이
 있고 관리 키로 즉시 취소할 수 있을 때만 실행한다.

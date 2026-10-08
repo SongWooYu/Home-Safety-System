@@ -8,9 +8,10 @@ from .base import CameraSource
 
 
 class RtspSource(CameraSource):
-    def __init__(self, url: str, transport: str = "tcp"):
+    def __init__(self, url: str, transport: str = "tcp", low_latency: bool = False):
         self.url = url
         self.transport = transport
+        self.low_latency = low_latency
         self.capture: cv2.VideoCapture | None = None
 
     def open(self) -> None:
@@ -18,7 +19,10 @@ class RtspSource(CameraSource):
             raise RuntimeError("DAHUA_RTSP_URL is not configured")
 
         old_options = os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS")
-        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = f"rtsp_transport;{self.transport}"
+        options = f"rtsp_transport;{self.transport}"
+        if self.low_latency:
+            options += "|fflags;nobuffer|flags;low_delay|max_delay;0|reorder_queue_size;0"
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = options
         try:
             capture = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
         finally:

@@ -27,6 +27,13 @@ done
 
 [[ $EUID -eq 0 ]] || { echo "Run with sudo."; exit 1; }
 
+OPERATOR_USER="${PI4_OPERATOR_USER:-${SUDO_USER:-pi}}"
+id "$OPERATOR_USER" >/dev/null 2>&1 || {
+  echo "Operator user does not exist: $OPERATOR_USER"
+  exit 1
+}
+OPERATOR_GROUP="$(id -gn "$OPERATOR_USER")"
+
 if ! command -v curl >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y curl openssl
@@ -65,6 +72,11 @@ fi
 ensure_env VISION_API_URL "http://192.168.1.20:8080"
 ensure_env WEBRTC_BASE_URL "http://192.168.1.20:8889"
 ensure_env WEBRTC_CAMERAS "cam3,webcam,dahua"
+
+# 운영 사용자에게만 compose/status 실행에 필요한 읽기 권한을 준다.
+chown root:"$OPERATOR_GROUP" "$ENV_FILE"
+chmod 0640 "$ENV_FILE"
+
 legacy_pg=""
 for candidate in smarthome_postgres postgres; do
   if docker inspect "$candidate" >/dev/null 2>&1; then
@@ -141,6 +153,10 @@ chown 999:999 "$postgres_data" || true
 chown 1883:1883 "$PI4_DIR/runtime/mqtt/data" || true
 
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build
+
+if [[ "${INSTALL_AUDIO_ALARM:-1}" == "1" ]]; then
+  ALARM_SERVICE_USER="$OPERATOR_USER" "$SCRIPT_DIR/install-audio-alarm.sh"
+fi
 
 web_port="$(sed -n 's/^WEB_PORT=//p' "$ENV_FILE")"
 web_port="${web_port:-8081}"
