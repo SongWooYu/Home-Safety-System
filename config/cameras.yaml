@@ -90,6 +90,29 @@ fall_detection:
   confirm_seconds: 1.2
   recovery_seconds: 2.0
 
+  # B_76_sqrt 3-seed GRU.
+  #
+  # 현재는 기존 RuleFallDetector와
+  # 동시에 실행하는 shadow mode이며
+  # MQTT fall event에는 관여하지 않는다.
+  temporal:
+    enabled: true
+    mode: shadow
+
+    model:
+      models/fall_gru/b76_sqrt_ensemble/numpy
+
+    sequence_length: 20
+    sample_fps: 10
+    keypoint_confidence: 0.25
+
+    # Balanced development profile.
+    threshold: 0.92
+    consecutive: 1
+
+    max_missing_frames: 10
+    expire_seconds: 1.5
+
 
 cameras:
 
@@ -179,6 +202,9 @@ cameras:
     ai_enabled: true
 
     fall_detection: true
+
+    # Primary temporal fall camera.
+    temporal_fall: true
 
     face_recognition: false
 

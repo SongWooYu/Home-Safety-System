@@ -50,6 +50,30 @@ def load_config(path: str | Path) -> dict[str, Any]:
         pose_model_path = Path(fall_config["model"])
         if not pose_model_path.is_absolute():
             fall_config["model"] = str(project_root / pose_model_path)
+
+        temporal_config = fall_config.get(
+            "temporal",
+            {},
+        )
+
+        if temporal_config.get(
+            "enabled",
+            False,
+        ):
+            temporal_model_path = Path(
+                temporal_config[
+                    "model"
+                ]
+            )
+
+            if not temporal_model_path.is_absolute():
+                temporal_config[
+                    "model"
+                ] = str(
+                    project_root
+                    / temporal_model_path
+                )
+
     face_config = data.get("face_recognition", {})
     if face_config.get("enabled", False):
         for key in ("detector_model", "recognizer_model", "database"):

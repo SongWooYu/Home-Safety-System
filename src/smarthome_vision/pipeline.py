@@ -11,7 +11,9 @@ import numpy as np
 from .events import EventBus
 from .fall_detection import FallTracker
 from .face_registry import FaceRegistry
+from .gru_numpy import NumpyFallEnsemble
 from .inference import NcnnPoseEstimator
+from .temporal_fall import TemporalFallShadow
 from .sources import PiCameraSource, RtspSource, UsbCameraSource
 from .sources.base import CameraSource
 
@@ -45,6 +47,12 @@ class WorkerSnapshot:
     unknown_faces: int
     capture_fps: float
     last_frame_age: float | None
+    temporal_enabled: bool
+    temporal_mode: str
+    temporal_state: str
+    temporal_alert_score: float
+    temporal_best_track_id: int | None
+    temporal_tracks: list[dict[str, Any]]
     error: str | None
 
 
@@ -54,6 +62,7 @@ class CameraWorker:
         camera_config: dict[str, Any],
         source: CameraSource,
         pose_estimator: NcnnPoseEstimator | None,
+        temporal_ensemble: NumpyFallEnsemble | None,
         face_registry: FaceRegistry | None,
         event_bus: EventBus,
         stream_width: int,
@@ -105,6 +114,76 @@ class CameraWorker:
             confirm_seconds=float(fall_config.get("confirm_seconds", 1.2)),
             recovery_seconds=float(fall_config.get("recovery_seconds", 2.0)),
         )
+
+        temporal_config = fall_config.get(
+            "temporal",
+            {},
+        )
+
+        self.temporal_mode = str(
+            temporal_config.get(
+                "mode",
+                "off",
+            )
+        )
+
+        self.temporal_fall = None
+
+        if (
+            self.pose_enabled
+            and temporal_ensemble is not None
+            and temporal_config.get(
+                "enabled",
+                False,
+            )
+            and camera_config.get(
+                "temporal_fall",
+                False,
+            )
+        ):
+            self.temporal_fall = TemporalFallShadow(
+                ensemble=temporal_ensemble,
+                sequence_length=int(
+                    temporal_config.get(
+                        "sequence_length",
+                        20,
+                    )
+                ),
+                keypoint_confidence=float(
+                    temporal_config.get(
+                        "keypoint_confidence",
+                        0.25,
+                    )
+                ),
+                threshold=float(
+                    temporal_config.get(
+                        "threshold",
+                        0.92,
+                    )
+                ),
+                consecutive=int(
+                    temporal_config.get(
+                        "consecutive",
+                        1,
+                    )
+                ),
+                max_missing_frames=int(
+                    temporal_config.get(
+                        "max_missing_frames",
+                        10,
+                    )
+                ),
+                expire_seconds=float(
+                    temporal_config.get(
+                        "expire_seconds",
+                        1.5,
+                    )
+                ),
+            )
+
+        self._temporal_tracks: list[
+            dict[str, Any]
+        ] = []
 
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -397,6 +476,22 @@ class CameraWorker:
                         )
                     )
 
+                    if self.temporal_fall is not None:
+
+                        temporal_tracks = (
+                            self.temporal_fall
+                            .update(
+                                poses,
+                                frame.shape,
+                                now,
+                            )
+                        )
+
+                        with self._lock:
+                            self._temporal_tracks = (
+                                temporal_tracks
+                            )
+
                     if pose_result.event_type:
 
                         severity = (
@@ -611,28 +706,216 @@ class CameraWorker:
 
     def snapshot(self) -> WorkerSnapshot:
         with self._lock:
-            age = None if self._last_frame_at is None else max(0.0, time.monotonic() - self._last_frame_at)
-            detected_objects: dict[str, int] = {}
+            age = (
+                None
+                if self._last_frame_at is None
+                else max(
+                    0.0,
+                    time.monotonic()
+                    - self._last_frame_at,
+                )
+            )
+
+            detected_objects: dict[
+                str,
+                int,
+            ] = {}
+
             for detection in self._detections:
                 label = detection["label"]
-                detected_objects[label] = detected_objects.get(label, 0) + 1
+
+                detected_objects[
+                    label
+                ] = (
+                    detected_objects.get(
+                        label,
+                        0,
+                    )
+                    + 1
+                )
+
+            temporal_tracks = [
+                dict(item)
+                for item
+                in self._temporal_tracks
+            ]
+
+            ready_tracks = [
+                item
+                for item
+                in temporal_tracks
+                if item.get(
+                    "ready",
+                    False,
+                )
+            ]
+
+            if ready_tracks:
+                best_temporal = max(
+                    ready_tracks,
+                    key=lambda item:
+                        float(
+                            item.get(
+                                "alert_score",
+                                0.0,
+                            )
+                        ),
+                )
+
+            elif temporal_tracks:
+                best_temporal = max(
+                    temporal_tracks,
+                    key=lambda item:
+                        int(
+                            item.get(
+                                "buffer",
+                                0,
+                            )
+                        ),
+                )
+
+            else:
+                best_temporal = None
+
+            if best_temporal is not None:
+                temporal_state = str(
+                    best_temporal.get(
+                        "state",
+                        "warming",
+                    )
+                )
+
+                temporal_alert_score = float(
+                    best_temporal.get(
+                        "alert_score",
+                        0.0,
+                    )
+                )
+
+                temporal_best_track_id = int(
+                    best_temporal[
+                        "track_id"
+                    ]
+                )
+
+            else:
+                temporal_state = (
+                    "warming"
+                    if self.temporal_fall
+                    is not None
+                    else "off"
+                )
+
+                temporal_alert_score = 0.0
+                temporal_best_track_id = None
+
             return WorkerSnapshot(
                 camera_id=self.camera_id,
                 label=self.label,
                 source_type=self.source_type,
-                online=self._online and age is not None and age < 5.0,
+
+                online=(
+                    self._online
+                    and age is not None
+                    and age < 5.0
+                ),
+
                 ai_enabled=self.ai_enabled,
-                person_count=detected_objects.get("person", 0),
-                object_count=sum(detected_objects.values()),
-                detected_objects=detected_objects,
+
+                person_count=(
+                    detected_objects.get(
+                        "person",
+                        0,
+                    )
+                ),
+
+                object_count=sum(
+                    detected_objects.values()
+                ),
+
+                detected_objects=(
+                    detected_objects
+                ),
+
                 pose_enabled=self.pose_enabled,
-                pose_state=self.fall_tracker.pose_state,
-                fall_state=self.fall_tracker.fall_state,
-                fall_confidence=round(self.fall_tracker.confidence, 3),
-                known_faces=sum(1 for face in self._faces if face["registered"]),
-                unknown_faces=sum(1 for face in self._faces if not face["registered"]),
-                capture_fps=round(self._capture_fps, 1),
-                last_frame_age=round(age, 1) if age is not None else None,
+
+                pose_state=(
+                    self.fall_tracker
+                    .pose_state
+                ),
+
+                fall_state=(
+                    self.fall_tracker
+                    .fall_state
+                ),
+
+                fall_confidence=round(
+                    self.fall_tracker
+                    .confidence,
+                    3,
+                ),
+
+                known_faces=sum(
+                    1
+                    for face
+                    in self._faces
+                    if face[
+                        "registered"
+                    ]
+                ),
+
+                unknown_faces=sum(
+                    1
+                    for face
+                    in self._faces
+                    if not face[
+                        "registered"
+                    ]
+                ),
+
+                capture_fps=round(
+                    self._capture_fps,
+                    1,
+                ),
+
+                last_frame_age=(
+                    round(
+                        age,
+                        1,
+                    )
+                    if age is not None
+                    else None
+                ),
+
+                temporal_enabled=(
+                    self.temporal_fall
+                    is not None
+                ),
+
+                temporal_mode=(
+                    self.temporal_mode
+                    if self.temporal_fall
+                    is not None
+                    else "off"
+                ),
+
+                temporal_state=(
+                    temporal_state
+                ),
+
+                temporal_alert_score=round(
+                    temporal_alert_score,
+                    4,
+                ),
+
+                temporal_best_track_id=(
+                    temporal_best_track_id
+                ),
+
+                temporal_tracks=(
+                    temporal_tracks
+                ),
+
                 error=self._error,
             )
 
@@ -654,6 +937,40 @@ class VisionPipeline:
                 nms_iou=float(fall_config.get("nms_iou", 0.45)),
                 threads=int(fall_config.get("threads", 2)),
             )
+
+        self.temporal_ensemble: (
+            NumpyFallEnsemble | None
+        ) = None
+
+        self.temporal_error: (
+            str | None
+        ) = None
+
+        temporal_config = (
+            fall_config.get(
+                "temporal",
+                {},
+            )
+        )
+
+        if temporal_config.get(
+            "enabled",
+            False,
+        ):
+            try:
+                self.temporal_ensemble = (
+                    NumpyFallEnsemble(
+                        temporal_config[
+                            "model"
+                        ]
+                    )
+                )
+
+            except Exception as exc:
+                self.temporal_error = (
+                    str(exc)
+                )
+
         face_config = config.get("face_recognition", {})
         self.face_registry: FaceRegistry | None = None
         self.face_error: str | None = None
@@ -678,6 +995,7 @@ class VisionPipeline:
                 camera,
                 source,
                 self.pose_estimator,
+                self.temporal_ensemble,
                 self.face_registry,
                 self.event_bus,
                 int(config["server"].get("stream_width", 640)),
@@ -720,6 +1038,8 @@ class VisionPipeline:
         return {
             "service": "smarthome-vision",
             "mqtt_connected": self.event_bus.connected,
+            "temporal_fall_enabled": self.temporal_ensemble is not None,
+            "temporal_fall_error": self.temporal_error,
             "face_recognition_enabled": self.face_registry is not None,
             "face_recognition_error": self.face_error,
             "registered_people": len(self.registered_faces()),
