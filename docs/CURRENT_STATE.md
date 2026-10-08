@@ -1,6 +1,6 @@
 # 현재 프로젝트 상태
 
-기준일: 2026-09-17
+기준일: 2026-10-08
 
 ## 단일 기준 작업 공간
 
@@ -38,15 +38,17 @@ Pi5의 `eth0`는 현재 내려가 있고 Dahua는 Pi5에 직결하지 않는다.
 - 전시 출력: HDMI-A-2 연결 시 Pi5 로컬 3카메라 화면을 즉시 전체화면으로 실행; HDMI-A-1은 연결 시 OS 데스크톱
 - 개발 MJPEG: 640×360, 15 FPS, JPEG 품질 70; 전시 WebRTC: H.264 640×360, 15 FPS, 카메라당 1,000 kbit/s
 - 현재 카메라: Camera Module 3, ABKO 웹캠, Dahua RTSP 모두 온라인
-- 객체 검출: YOLO11n NCNN, 화면과 이벤트에는 `person`만 사용
-- 자세/낙상: YOLO11n-pose NCNN과 보수적인 시간 기반 상태 추적
+- 사람/자세: Dahua의 YOLO11n-pose NCNN 320 단일 추론에서 bbox와 keypoint 생성
+- 시간 낙상: B76 3-seed NumPy GRU ensemble을 20프레임/10 FPS Quiet shadow로 실행
+- rule 낙상: fallback을 유지하며 현재 MQTT `active`; 최근 장면의 반복 상태 전이가 검증 위험
 - 얼굴: OpenCV YuNet + SFace, 등록은 코드 불필요; 목록 조회·삭제는 관리 키 필요
 - MQTT: `192.168.1.10:1883`로 이벤트와 상태 전송
 - 얼굴 원본 사진은 저장하지 않으며 특징 벡터 파일도 Git에서 제외
 
-세 장치 입력은 약 12~25 FPS로 캡처된다. 2026-09-17 점검 시에는
-세 카메라 모두 온라인이고 MQTT도 연결된 상태였다.
-AI 분석 FPS는 캡처 FPS보다 낮게 제한하여 Pi5 CPU 부하를 제어한다.
+2026-10-08 점검에서 Camera Module 3 약 15 FPS, ABKO 약 7.5 FPS, Dahua 약
+15 FPS로 수집됐고 세 카메라와 MQTT가 모두 online이었다. Dahua pose는 고유한
+새 프레임만 사용해 약 9.75~9.77 FPS를 유지한다. 640 pose는 전체 서비스에서
+7.88 FPS, 960 pose는 단독 약 5.35 FPS라 Hailo 전 운영 모델은 320으로 확정했다.
 
 ## 디렉터리 역할
 
@@ -96,6 +98,10 @@ Pi4의 `:8081`은 전체 안전 상태, 최근 사건, 경보 확인·취소를 
 - Pi4 MQTT/PostgreSQL/수집/자동화/최종 화면 Compose 구성과 설치 도구
 - Pi5 MediaMTX/WebRTC와 3개 H.264 publisher 설치·자동 시작
 - Pi4 MJPEG Python 프록시 제거, 브라우저-Pi5 직접 영상 경로 구현
+- 동일 RTSP 프레임의 temporal buffer 중복 삽입 방지와 실효 FPS/지연 계측
+- B76 3-seed NumPy GRU shadow, 사람별 motion tracker, confirm/release/cooldown 구현
+- 비영상 JSONL shadow 관찰 로그와 품질 진단·요약 도구
+- Pi5→Pi4 비경보 MQTT/DB/API 왕복과 동일 event_id 중복 방지 실측 성공
 
 ## 협업자 커밋 확인
 
@@ -107,12 +113,13 @@ Compose 구조에 그대로 합치지 않는다.
 
 ## 남은 핵심 작업
 
-1. Pi4에서 최신 커밋을 pull하고 `sudo ./pi4/scripts/install.sh`로 WebRTC 화면 반영
-2. Pi5→Pi4 MQTT 실제 왕복, DB 중복 방지, 경보 취소 통합 시험
-3. Pi4와 Pi5 동시 재부팅 후 자동 복구 확인
-4. 스피커/부저의 실제 GPIO 또는 USB 오디오 출력을 Pi4 경보 토픽에 연결
-5. 전시장 동선으로 낙상 오탐·미탐 데이터를 수집하고 임계값을 마지막에 조정
-6. MQTT 익명 접속을 인증 방식으로 전환하고 방화벽 범위를 전시장 LAN으로 제한
+1. Pi4 로컬/VS Code에서 최신 커밋을 반영하고 Compose 상태와 DB SQL 직접 확인
+2. 안전한 현장 ADL 30분과 방향별 연기 낙상으로 Quiet GRU와 rule을 비교
+3. 실제 active 경보 경로를 선택하고 Pi4 경보 취소를 통합 시험
+4. Pi4와 Pi5 동시 재부팅 후 3분 이내 자동 복구 확인
+5. 스피커/부저의 실제 GPIO 또는 USB 오디오 출력을 Pi4 경보 토픽에 연결
+6. 세 WebRTC 영상과 AI를 2시간 유지하는 전시 soak test
+7. MQTT 익명 접속을 인증 방식으로 전환하고 방화벽 범위를 전시장 LAN으로 제한
 
 낙상은 현재 의료적으로 검증된 판정이 아니라 졸업작품 시연용 위험 징후 MVP다.
 
@@ -122,3 +129,5 @@ Compose 구조에 그대로 합치지 않는다.
 [구현 및 설정 통합 기록](IMPLEMENTATION_HISTORY.md)에 모았다. AI Hub 데이터,
 Mac mini M4 학습, Hailo-8 추론, Pi5/Pi4 역할 재분배를 포함한 다음 설계 기준은
 [자원 제약 기반 시스템 전면 재검토](ARCHITECTURE_REVIEW.md)를 따른다.
+2026-10-08 실측, GRU 위험, Pi4 왕복 결과와 Hailo 전 완료 기준은
+[Hailo 장착 전 비전·통합 상태](PRE_HAILO_STATUS_2026-10-08.md)에 정리했다.

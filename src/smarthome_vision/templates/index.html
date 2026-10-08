@@ -1511,7 +1511,7 @@ select{
 
               <strong
                 id="gru-threshold">
-                92%
+                -
               </strong>
             </div>
 
@@ -2577,6 +2577,31 @@ function renderFallAI(
       || 0
     );
 
+  const temporalTracks =
+    camera.temporal_tracks
+    || [];
+
+  const bestTrack =
+    temporalTracks.find(
+      track =>
+        track.track_id
+        === camera.temporal_best_track_id
+    )
+    || temporalTracks[0]
+    || null;
+
+  const threshold =
+    bestTrack
+      ? Number(bestTrack.threshold || 0)
+      : 0;
+
+  document.getElementById(
+    "gru-threshold"
+  ).textContent =
+    threshold > 0
+      ? percent(threshold)
+      : "-";
+
 
   document.getElementById(
     "gru-score"
@@ -2614,7 +2639,8 @@ function renderFallAI(
   bar.className =
     "score-fill"
     + (
-      score >= .92
+      threshold > 0
+      && score >= threshold
         ? " danger"
         : score >= .60
           ? " warning"
@@ -2623,8 +2649,7 @@ function renderFallAI(
 
 
   renderTracks(
-    camera.temporal_tracks
-    || []
+    temporalTracks
   );
 
 }

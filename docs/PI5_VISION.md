@@ -11,9 +11,9 @@
 
 | 입력 | 수집 계층 | 입력 형식 | 현재 설정 |
 |---|---|---|---|
-| Camera Module 3 | Picamera2/libcamera | 센서 프레임을 Picamera2가 배열로 제공 | 960×540, 30 FPS |
-| ABKO APC720 | V4L2/OpenCV | 카메라에 MJPG 요청 후 OpenCV가 BGR로 디코딩 | 1280×720, 30 FPS 요청 |
-| Dahua | RTSP/OpenCV/FFmpeg | 메인 스트림 압축 영상을 디코딩 | `subtype=0`, 실제 1280×720 약 25 FPS |
+| Camera Module 3 | Picamera2/libcamera | 센서 프레임을 Picamera2가 배열로 제공 | 960×540, 15 FPS |
+| ABKO APC720 | V4L2/OpenCV | 카메라에 MJPG 요청 후 OpenCV가 BGR로 디코딩 | 1280×720, 15 FPS 요청(실측 약 7.5) |
+| Dahua | RTSP/OpenCV/FFmpeg | 메인 스트림 압축 영상을 디코딩 | `subtype=0`, 실제 1920×1080 약 15 FPS 수집 |
 
 즉 Camera Module 3 자체를 웹캠처럼 “MJPEG 카메라”라고 부르지 않는다. 세 입력은
 수집 방식이 다르지만 분석 시점에는 모두 OpenCV BGR 배열이다. 개발 웹 화면으로
@@ -25,11 +25,12 @@
 
 ```text
 카메라별 캡처
-  -> 최신 BGR 프레임 보관
-  -> 제한된 analysis_fps로 객체 검출
-  -> person 결과만 필터
-  -> 제한된 별도 주기로 pose와 face 분석
-  -> 시간 기반 상태 추적
+  -> 최신 BGR 프레임과 frame sequence 보관
+  -> Dahua의 새 프레임만 10 FPS로 pose 분석
+  -> pose에서 person bbox와 17 keypoint 생성
+  -> 사람별 tracking과 B76 GRU shadow 분석
+  -> ABKO는 별도 0.5 FPS로 face 분석
+  -> rule/GRU 상태 추적
   -> 상태 변화 이벤트 + 주기 상태 MQTT 발행
   -> 박스/상태 오버레이
   -> 640×360/15 FPS 개발 화면용 JPEG 인코딩
@@ -48,17 +49,18 @@ MJPEG를 640×360으로 통일한 뒤 약 7%로 감소했다. 장면과 접속�
 
 ## 모델과 필터
 
-- 객체 검출: `models/yolo11n_ncnn_model`
 - 자세 추정: `models/yolo11n-pose_ncnn_model`
-- 실행기: NCNN aarch64, Vulkan 비활성, CPU 스레드 제한
+- 실행기: NCNN aarch64, Vulkan 비활성, 4 threads
 - 입력 크기: 320
-- 객체 임계값: 0.35
+- person confidence: 0.10
 - NMS IoU: 0.45
+- 시간 모델: `models/fall_gru/b76_sqrt_ensemble/numpy`
+- 시간 입력: 20 frames × 76 features, 10 FPS
 
-객체 모델은 COCO 여러 클래스를 계산하지만 현재 코드가 `person`만 남긴다.
-출력 필터는 화면을 단순화할 뿐 모델 연산량을 줄이지 않는다. 실제 경량화를
-하려면 person 전용으로 학습·변환한 모델, 작은 입력, 분석 FPS 조정 또는 Hailo
-가속이 필요하다.
+현재 fall runtime은 별도 COCO object detector를 생성하지 않는다. pose 모델이
+person bbox와 17개 keypoint를 한 번에 제공하므로 화면에도 사람만 표시된다.
+2026-10-08 실측에서 640 pose는 전체 서비스 7.88 FPS, 960 pose는 단독 약
+5.35 FPS여서 10 FPS 시간 계약을 만족하는 320을 Hailo 전 운영값으로 유지한다.
 
 ## 사람 이벤트 안정화
 
@@ -100,9 +102,11 @@ MJPEG를 640×360으로 통일한 뒤 약 7%로 감소했다. 장면과 접속�
 }
 ```
 
-이벤트 종류는 `person_detected`, `person_cleared`, `fall_suspected`,
+MQTT 이벤트 종류는 `person_detected`, `person_cleared`, `fall_suspected`,
 `fall_confirmed`, `fall_cleared`다. `event_id`는 Pi4가 QoS 1 재전송을
-중복 저장하지 않기 위한 키다.
+중복 저장하지 않기 위한 키다. GRU의 `fall_shadow_confirmed/cleared`는 Pi5 로컬
+개발 이벤트와 JSONL에만 기록하고 MQTT로 보내지 않는다. rule은 설정의
+`fall_detection.rule.mode`가 `active`일 때만 MQTT로 발행한다.
 
 ### 상태
 
@@ -133,4 +137,5 @@ curl -L -I http://127.0.0.1:8889/cam3
 ```
 
 설치와 포트·비트레이트 조정은 [WebRTC 스트리밍 문서](WEBRTC_STREAMING.md)를
-따른다.
+따른다. 최신 CPU 벤치마크, shadow 위험과 Hailo 전 완료 조건은
+[Hailo 장착 전 비전·통합 상태](PRE_HAILO_STATUS_2026-10-08.md)를 본다.

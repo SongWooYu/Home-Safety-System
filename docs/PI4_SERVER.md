@@ -149,6 +149,18 @@ false일 때 즉시 멈추게 구현한다. 현재 저장소에는 실제 하드
 
 ## 통합 시험
 
+2026-10-08 Pi5에서 실제 확인한 결과:
+
+- Pi4 `/health`와 `/api/vision/health` 정상
+- 세 Pi5 retain 상태가 Pi4 `overview`에 반영
+- 비경보 `integration_probe` MQTT→collector→PostgreSQL→웹 API 왕복 성공
+- 같은 `event_id`를 QoS 1로 2회 발행해도 `vision_event`에는 1행만 저장
+- Pi4 SSH는 키/비밀번호 인증 실패 상태이므로 아래 Docker/SQL 명령은 Pi4 로컬
+  터미널 또는 인증된 VS Code 세션에서 실행해야 함
+
+실제 `fall_confirmed` smoke test는 경보를 울리고 DB를 변경한다. 현장에 사람이
+있고 관리 키로 즉시 취소할 수 있을 때만 실행한다.
+
 ```bash
 cd /home/pi/Home-Safety-System
 ./pi4/scripts/status.sh

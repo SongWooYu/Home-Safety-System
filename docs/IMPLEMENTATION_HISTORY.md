@@ -247,6 +247,8 @@ DB는 `event_id`를 기준으로 중복 사건을 막고, 5초 상태는 계속 
 | `bc29d7d` | WebRTC 15 FPS 조정 |
 | `abd540d`, `d0831cc` | 듀얼 HDMI와 HDMI-A-2 전시 화면 |
 | `a8c5f37` | MJPEG 부하 절감과 정지 화면 복구 |
+| `aa4da0c` | 비전 개발 대시보드와 Pi 테스트 workflow 정리 |
+| `73ed162` | 고유 프레임 10 Hz, temporal tracker/state, shadow 로그와 pose 벤치마크 |
 
 협업자 참고 커밋 `32e0857`은 `reference/collaborator-smarthome/`에만 자료를
 추가했으며 현재 `pi4/` 실행 스택을 덮어쓰지 않는다.
@@ -286,11 +288,14 @@ MQTT 자격 증명, PostgreSQL 비밀번호, 얼굴 관리 키가 대상이다.
 - Pi4 Compose 서버와 clone 설치 스크립트
 - Pi5 MediaMTX/WebRTC 직접 영상 경로
 - 개발 MJPEG 부하 완화와 브라우저 복구
+- B76 3-seed NumPy GRU shadow와 고유 프레임 10 Hz 입력
+- Pi5→Pi4 비경보 MQTT/DB/API 왕복과 event_id 중복 방지 검증
+- 비영상 shadow 로그, 품질 지표, NCNN 320/640/960 벤치마크 도구
 
 미완료:
 
-- Pi4 실제 장치에서 최신 스택 전체 재설치·왕복 검증
-- 학습형 낙상 모델과 전시장 데이터 검증
+- Pi4 로컬에서 최신 Git/Compose 상태와 재부팅 복구 검증
+- 학습형 낙상 모델의 현장 ADL/연기 낙상 라벨 검증과 active 경로 선택
 - 실제 부저/스피커 동작
 - 등록자와 사람 추적 ID의 장시간 결합
 - MQTT 인증, 방화벽, CORS/HTTPS 등 전시망 보안 강화
@@ -305,3 +310,4 @@ MQTT 자격 증명, PostgreSQL 비밀번호, 얼굴 관리 키가 대상이다.
 - [WebRTC 영상 전달](WEBRTC_STREAMING.md)
 - [얼굴 등록과 인식](FACE_RECOGNITION.md)
 - [듀얼 HDMI](DUAL_DISPLAY.md)
+- [Hailo 장착 전 비전·통합 상태](PRE_HAILO_STATUS_2026-10-08.md)

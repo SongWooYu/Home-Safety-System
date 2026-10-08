@@ -1,6 +1,6 @@
 # 자원 제약 기반 시스템 전면 재검토
 
-기준일: 2026-09-17
+기준일: 2026-10-08
 
 ## 1. 최종 결론
 
@@ -193,11 +193,18 @@ Camera Module 3도 예비 등록기로 남기고 싶다면 관리자 설정에�
 
 ### Hailo 도착 전
 
-- Camera Module 3, Dahua: 사람/pose/낙상만 실행
+2026-10-08 실측에 따라 현재 운영값을 다음처럼 고정한다.
+
+- Dahua: YOLO11n-pose NCNN 320을 약 9.75 FPS로 실행하고 rule/GRU를 비교
+- Camera Module 3: 보조 감시 화면만 제공하며 pose는 끔
 - 웹캠: 얼굴 등록/인식만 실행; 일반 객체와 낙상은 끔
-- pose 1~2 FPS, 객체 3~5 FPS 범위에서 시작
-- 개발 화면과 WebRTC/HDMI를 동시에 상시 실행하지 않음
+- 640 pose는 전체 서비스 7.88 FPS, 960 pose는 단독 5.35 FPS라 사용하지 않음
+- 개발 화면과 WebRTC/HDMI를 동시에 불필요하게 상시 실행하지 않음
 - H.264 publisher는 시청 중에만 실행
+- GRU는 Quiet shadow로 유지하고 현장 라벨 시험 전 MQTT 경보로 승격하지 않음
+
+상세 수치와 검증 절차는
+[Hailo 장착 전 비전·통합 상태](PRE_HAILO_STATUS_2026-10-08.md)를 따른다.
 
 ### Hailo 도착 후
 

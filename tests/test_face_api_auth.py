@@ -72,6 +72,13 @@ class FaceApiAuthorizationTest(unittest.TestCase):
         token_input = html.split('id="face-token"', 1)[1].split(">", 1)[0]
         self.assertNotIn("required", token_input)
 
+    def test_dashboard_uses_runtime_temporal_threshold(self):
+        response = self.client.get("/")
+
+        html = response.get_data(as_text=True)
+        self.assertIn("bestTrack.threshold", html)
+        self.assertNotIn("score >= .92", html)
+
 
 if __name__ == "__main__":
     unittest.main()
