@@ -3,8 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import torch
-from torch import nn
+
+try:
+    import torch
+    from torch import nn
+except ModuleNotFoundError:
+    torch = None
+    nn = None
 
 from smarthome_vision.gru_numpy import (
     NumpyFallGRU,
@@ -31,8 +36,10 @@ SEEDS = (
 )
 
 
-class TorchFallGRU(nn.Module):
+class TorchFallGRU(nn.Module if nn is not None else object):
     def __init__(self):
+        if nn is None:
+            raise RuntimeError("PyTorch is required for parity validation")
         super().__init__()
 
         self.input_norm = nn.LayerNorm(
@@ -87,6 +94,10 @@ class TorchFallGRU(nn.Module):
 
 
 def main():
+
+    if torch is None:
+        print("NUMPY GRU PARITY: SKIP (PyTorch is not installed)")
+        return
 
     rng = np.random.default_rng(
         20261008

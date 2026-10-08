@@ -8,5 +8,6 @@ captures/
 clips/
 snapshots/
 runtime/
+*.before-*
 
 data/faces.json
