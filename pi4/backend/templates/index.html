@@ -15,7 +15,9 @@
     .vision-card{overflow:hidden}.vision-card strong{display:block;margin-bottom:8px}.vision-stream{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#05070a;border-radius:6px}
     .stream-meta{margin-top:7px}.online{color:var(--green)}.offline{color:var(--red)}.events{display:grid;gap:8px;max-height:480px;overflow:auto}
     .event{display:grid;grid-template-columns:150px 110px 1fr;gap:10px}input,button{padding:9px 11px;border-radius:8px;border:1px solid var(--line);background:#101720;color:var(--text)}
-    button{background:#9a2938;cursor:pointer}@media(max-width:650px){.event{grid-template-columns:1fr}header{display:block}.grid,.video-grid{grid-template-columns:1fr}}
+    button{background:#9a2938;cursor:pointer}.alarm-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.test-button{background:#9a5a16}.cancel-button{background:#9a2938}
+    .volume-control{display:flex;align-items:center;gap:8px;padding:5px 10px;border:1px solid var(--line);border-radius:8px}.volume-control input{padding:0;width:150px}.volume-control output{min-width:42px;text-align:right}
+    @media(max-width:650px){.event{grid-template-columns:1fr}header{display:block}.grid,.video-grid{grid-template-columns:1fr}.alarm-controls>*{width:100%}.volume-control input{width:100%}}
   </style>
 </head>
 <body>
@@ -24,9 +26,18 @@
     <section id="alarm" class="alarm">
       <strong id="alarm-title">안전 상태 확인 중</strong>
       <p id="alarm-detail" class="muted">Pi5 이벤트와 Pi4 자동화 상태를 기다립니다.</p>
-      <input id="admin-token" type="password" autocomplete="off" placeholder="관리 키">
-      <button id="cancel" type="button">경보 확인·취소</button>
-      <span id="action-message" class="muted"></span>
+      <div class="alarm-controls">
+        <input id="admin-token" type="password" autocomplete="off" placeholder="관리 키">
+        <button id="test-alarm" class="test-button" type="button">시험 낙상 경보 발생</button>
+        <button id="cancel" class="cancel-button" type="button">낙상 경보 해제</button>
+        <label class="volume-control">
+          스피커 음량
+          <input id="alarm-volume" type="range" min="0" max="100" step="5" value="70">
+          <output id="alarm-volume-value">70%</output>
+        </label>
+        <span id="action-message" class="muted"></span>
+      </div>
+      <p class="muted">시험 경보는 Pi4 스피커에서 경고음과 “낙상이 감지되었습니다” 음성을 재생합니다. 확인 후 해제 버튼을 눌러 주세요.</p>
     </section>
     <section class="panel">
       <h2>AI 분석 영상 <small id="vision-state">Pi5 연결 확인 중…</small></h2>
@@ -57,7 +68,12 @@
   </main>
 <script>
   const token = document.getElementById('admin-token');
+  const alarmVolume = document.getElementById('alarm-volume');
+  const alarmVolumeValue = document.getElementById('alarm-volume-value');
   token.value = sessionStorage.getItem('pi4AdminToken') || '';
+  alarmVolume.value = sessionStorage.getItem('pi4AlarmVolume') || '70';
+  alarmVolumeValue.value = alarmVolume.value + '%';
+  token.addEventListener('change',()=>sessionStorage.setItem('pi4AdminToken',token.value.trim()));
   const labels = {person_detected:'사람 감지',person_cleared:'사람 없음',fall_suspected:'낙상 의심',fall_confirmed:'낙상 확인',fall_cleared:'낙상 해제'};
   let lastStreamRestart = 0;
 
@@ -105,7 +121,17 @@
       const online=status.online !== false && Date.now()-Date.parse(item.updated_at)<15000;
       box.append(make('strong',status.label || item.camera_id));
       box.append(make('div',online?'온라인':'상태 지연',online?'online':'offline'));
-      box.append(make('div',`사람 ${status.person_count || 0}명 · 낙상 ${status.fall_state || 'normal'}`,'muted'));
+      const faceNames=[...new Set((status.recognized_faces || [])
+        .filter(face=>face.registered)
+        .map(face=>face.name))];
+      const unknownFaces=Number(status.unknown_faces || 0);
+      let detectionSummary='사람 '+(status.person_count || 0)+'명';
+      if(faceNames.length || unknownFaces){
+        const identities=faceNames.slice();
+        if(unknownFaces)identities.push('미등록 '+unknownFaces+'명');
+        detectionSummary='얼굴 '+identities.join(' · ');
+      }
+      box.append(make('div',detectionSummary+' · 낙상 '+(status.fall_state || 'normal'),'muted'));
       cameras.append(box);
       const videoName=document.getElementById(`video-name-${item.camera_id}`);
       if(videoName)videoName.textContent=status.label || item.camera_id;
@@ -145,15 +171,49 @@
       state.textContent='Pi5 영상 연결 끊김 · 자동 재시도';
     }
   }
+  async function alarmRequest(path, body=null) {
+    const supplied=token.value.trim();
+    sessionStorage.setItem('pi4AdminToken',supplied);
+    const options={method:'POST',headers:{'X-Admin-Token':supplied}};
+    if(body!==null){
+      options.headers['Content-Type']='application/json';
+      options.body=JSON.stringify(body);
+    }
+    const response=await fetch(path,options);
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.error || '요청 실패');
+    return data;
+  }
+
+  document.getElementById('test-alarm').addEventListener('click',async()=>{
+    const message=document.getElementById('action-message');
+    if(!confirm('Pi4 스피커에서 실제 경보음과 음성을 재생할까요?'))return;
+    try {
+      await alarmRequest('/api/alarm/test');
+      message.textContent='시험 낙상 경보를 발생시켰습니다.';
+      setTimeout(refresh,300);
+    } catch(error) { message.textContent=error.message; }
+  });
+
   document.getElementById('cancel').addEventListener('click',async()=>{
-    const supplied=token.value.trim(); sessionStorage.setItem('pi4AdminToken',supplied);
     const message=document.getElementById('action-message');
     try {
-      const response=await fetch('/api/alarm/cancel',{method:'POST',headers:{'X-Admin-Token':supplied}});
-      const data=await response.json();
-      if(!response.ok) throw new Error(data.error || '요청 실패');
-      message.textContent='취소 명령을 전송했습니다.';
+      await alarmRequest('/api/alarm/cancel');
+      message.textContent='낙상 경보를 해제했습니다.';
       setTimeout(refresh,300);
+    } catch(error) { message.textContent=error.message; }
+  });
+
+  alarmVolume.addEventListener('input',()=>{
+    alarmVolumeValue.value=alarmVolume.value+'%';
+  });
+  alarmVolume.addEventListener('change',async()=>{
+    const message=document.getElementById('action-message');
+    const volume=Number(alarmVolume.value);
+    try {
+      await alarmRequest('/api/alarm/volume',{volume});
+      sessionStorage.setItem('pi4AlarmVolume',String(volume));
+      message.textContent='스피커 음량을 '+volume+'%로 설정했습니다.';
     } catch(error) { message.textContent=error.message; }
   });
   refresh();

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Play a Pi4 host alarm while the retained MQTT fall alarm is active."""
+"""Play a Pi4 host tone and Korean TTS while the MQTT fall alarm is active."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import signal
 import struct
 import subprocess
 import threading
-import time
 import wave
 from pathlib import Path
 
@@ -24,8 +23,30 @@ def parse_alarm_active(raw: str) -> bool | None:
         payload = json.loads(raw)
     except json.JSONDecodeError:
         return None
+    if not isinstance(payload, dict):
+        return None
     active = payload.get("active")
     return active if isinstance(active, bool) else None
+
+
+def parse_audio_volume(raw: str) -> int | None:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    volume = payload.get("volume")
+    if isinstance(volume, bool) or not isinstance(volume, int):
+        return None
+    return volume if 0 <= volume <= 100 else None
+
+
+def split_topic_payload(line: str) -> tuple[str, str] | None:
+    topic, separator, payload = line.strip().partition(" ")
+    if not separator or not topic or not payload:
+        return None
+    return topic, payload
 
 
 def generate_alarm_wav(path: Path, sample_rate: int = 48000) -> None:
@@ -34,7 +55,7 @@ def generate_alarm_wav(path: Path, sample_rate: int = 48000) -> None:
         (880.0, 0.28),
         (0.0, 0.12),
         (1046.5, 0.28),
-        (0.0, 0.72),
+        (0.0, 0.35),
     )
     amplitude = 0.18 * 32767
     samples: list[bytes] = []
@@ -57,14 +78,58 @@ def generate_alarm_wav(path: Path, sample_rate: int = 48000) -> None:
         output.writeframes(b"".join(samples))
 
 
+def generate_tts_wav(path: Path, text: str) -> bool:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        completed = subprocess.run(
+            [
+                "espeak-ng",
+                "-v",
+                os.getenv("ALARM_TTS_VOICE", "ko"),
+                "-s",
+                os.getenv("ALARM_TTS_SPEED", "145"),
+                "-a",
+                "170",
+                "-w",
+                str(path),
+                text,
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        LOG.error("could not generate TTS: %s", exc)
+        return False
+    if completed.returncode != 0:
+        LOG.error("espeak-ng failed: %s", completed.stderr.strip())
+        return False
+    return path.is_file() and path.stat().st_size > 44
+
+
 class AlarmPlayer:
-    def __init__(self, device: str, wav_path: Path):
+    def __init__(
+        self,
+        device: str,
+        playlist: list[Path],
+        mixer_card: str,
+        mixer_control: str,
+        volume: int,
+        repeat_pause: float = 1.2,
+    ):
         self.device = device
-        self.wav_path = wav_path
+        self.playlist = tuple(playlist)
+        self.mixer_card = mixer_card
+        self.mixer_control = mixer_control
+        self.repeat_pause = max(0.0, repeat_pause)
         self._active = threading.Event()
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._process: subprocess.Popen | None = None
+        self._volume = -1
+        self.set_volume(volume)
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -79,6 +144,37 @@ class AlarmPlayer:
             self._active.clear()
             self._terminate_playback()
 
+    def set_volume(self, volume: int) -> bool:
+        volume = min(100, max(0, int(volume)))
+        if volume == self._volume:
+            return True
+        try:
+            completed = subprocess.run(
+                [
+                    "amixer",
+                    "-q",
+                    "-c",
+                    self.mixer_card,
+                    "sset",
+                    self.mixer_control,
+                    f"{volume}%",
+                ],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            LOG.error("could not set alarm volume: %s", exc)
+            return False
+        if completed.returncode != 0:
+            LOG.error("amixer failed: %s", completed.stderr.strip())
+            return False
+        self._volume = volume
+        LOG.info("alarm volume set to %s%%", volume)
+        return True
+
     def close(self) -> None:
         self._stop.set()
         self._active.clear()
@@ -91,29 +187,37 @@ class AlarmPlayer:
         if process is not None and process.poll() is None:
             process.terminate()
 
+    def _play(self, wav_path: Path) -> None:
+        try:
+            process = subprocess.Popen(
+                ["aplay", "-q", "-D", self.device, str(wav_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            with self._lock:
+                self._process = process
+            _, stderr = process.communicate()
+            if process.returncode not in (0, -signal.SIGTERM):
+                LOG.error("aplay failed (%s): %s", process.returncode, stderr.strip())
+                self._stop.wait(1.0)
+        except OSError as exc:
+            LOG.error("could not start aplay: %s", exc)
+            self._stop.wait(2.0)
+        finally:
+            with self._lock:
+                self._process = None
+
     def _run(self) -> None:
         while not self._stop.is_set():
             if not self._active.wait(0.2):
                 continue
-            try:
-                process = subprocess.Popen(
-                    ["aplay", "-q", "-D", self.device, str(self.wav_path)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
-                with self._lock:
-                    self._process = process
-                _, stderr = process.communicate()
-                if process.returncode not in (0, -signal.SIGTERM):
-                    LOG.error("aplay failed (%s): %s", process.returncode, stderr.strip())
-                    self._stop.wait(1.0)
-            except OSError as exc:
-                LOG.error("could not start aplay: %s", exc)
-                self._stop.wait(2.0)
-            finally:
-                with self._lock:
-                    self._process = None
+            for wav_path in self.playlist:
+                if self._stop.is_set() or not self._active.is_set():
+                    break
+                self._play(wav_path)
+            if self._active.is_set():
+                self._stop.wait(self.repeat_pause)
 
 
 def subscriber_command() -> list[str]:
@@ -125,20 +229,43 @@ def subscriber_command() -> list[str]:
         os.getenv("MQTT_PORT", "1883"),
         "-t",
         os.getenv("ALARM_TOPIC", "home/safety/fall/alarm"),
+        "-t",
+        os.getenv("AUDIO_CONFIG_TOPIC", "home/safety/fall/audio/config"),
         "-q",
         "1",
+        "-v",
     ]
 
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    wav_path = Path(os.getenv("ALARM_WAV_PATH", "/run/smarthome-audio-alarm/alarm.wav"))
-    generate_alarm_wav(wav_path)
+    runtime_dir = Path(
+        os.getenv("ALARM_RUNTIME_DIR", "/run/smarthome-audio-alarm")
+    )
+    tone_path = runtime_dir / "alarm-tone.wav"
+    speech_path = runtime_dir / "fall-detected-ko.wav"
+    generate_alarm_wav(tone_path)
+    playlist = [tone_path]
+    if generate_tts_wav(
+        speech_path,
+        os.getenv("ALARM_TTS_TEXT", "낙상이 감지되었습니다."),
+    ):
+        playlist.append(speech_path)
+
     player = AlarmPlayer(
         os.getenv("ALARM_AUDIO_DEVICE", "plughw:CARD=Headphones,DEV=0"),
-        wav_path,
+        playlist,
+        os.getenv("ALARM_MIXER_CARD", "0"),
+        os.getenv("ALARM_MIXER_CONTROL", "PCM"),
+        int(os.getenv("ALARM_VOLUME", "70")),
+        float(os.getenv("ALARM_REPEAT_PAUSE", "1.2")),
     )
     stopping = threading.Event()
+    alarm_topic = os.getenv("ALARM_TOPIC", "home/safety/fall/alarm")
+    config_topic = os.getenv(
+        "AUDIO_CONFIG_TOPIC",
+        "home/safety/fall/audio/config",
+    )
 
     def stop_service(signum, frame):
         del signum, frame
@@ -150,7 +277,7 @@ def main() -> int:
     try:
         while not stopping.is_set():
             command = subscriber_command()
-            LOG.info("subscribing to MQTT fall alarm")
+            LOG.info("subscribing to MQTT fall alarm and audio config")
             try:
                 subscriber = subprocess.Popen(
                     command,
@@ -169,11 +296,23 @@ def main() -> int:
                 line = subscriber.stdout.readline()
                 if not line:
                     break
-                active = parse_alarm_active(line.strip())
-                if active is None:
-                    LOG.warning("ignored invalid alarm payload")
+                message = split_topic_payload(line)
+                if message is None:
+                    LOG.warning("ignored MQTT line without topic")
                     continue
-                player.set_active(active)
+                topic, raw = message
+                if topic == alarm_topic:
+                    active = parse_alarm_active(raw)
+                    if active is None:
+                        LOG.warning("ignored invalid alarm payload")
+                        continue
+                    player.set_active(active)
+                elif topic == config_topic:
+                    volume = parse_audio_volume(raw)
+                    if volume is None:
+                        LOG.warning("ignored invalid audio config payload")
+                        continue
+                    player.set_volume(volume)
 
             subscriber.terminate()
             try:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import types
 import unittest
@@ -11,6 +12,8 @@ from unittest.mock import call, patch
 fake_common = types.ModuleType("common")
 fake_common.database_connection = lambda: None
 fake_common.wait_for_database = lambda: None
+fake_common.decode_payload = lambda payload: payload
+fake_common.mqtt_client = lambda client_id: None
 sys.modules.setdefault("common", fake_common)
 
 WEB_PATH = Path(__file__).resolve().parents[1] / "pi4" / "backend" / "web.py"
@@ -45,6 +48,9 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
                 f'http://192.168.1.20:8889/{camera_id}?'.encode(), response.data
             )
         self.assertNotIn(b"/vision/stream/", response.data)
+        self.assertIn("시험 낙상 경보 발생".encode(), response.data)
+        self.assertIn("낙상 경보 해제".encode(), response.data)
+        self.assertIn(b"alarm-volume", response.data)
 
     def test_removed_mjpeg_proxy_route_is_not_available(self):
         response = self.client.get("/vision/stream/cam3")
@@ -69,6 +75,40 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
                 call("http://192.168.1.20:8889/cam3", timeout=3),
             ],
         )
+
+    def test_alarm_test_cancel_and_volume_require_admin_key(self):
+        with patch.dict(os.environ, {"ADMIN_TOKEN": "alarm-secret"}):
+            self.assertEqual(self.client.post("/api/alarm/test").status_code, 401)
+            self.assertEqual(self.client.post("/api/alarm/cancel").status_code, 401)
+            self.assertEqual(
+                self.client.post("/api/alarm/volume", json={"volume": 70}).status_code,
+                401,
+            )
+
+            headers = {"X-Admin-Token": "alarm-secret"}
+            with patch.object(pi4_web, "single") as publish:
+                test_response = self.client.post("/api/alarm/test", headers=headers)
+                cancel_response = self.client.post("/api/alarm/cancel", headers=headers)
+                volume_response = self.client.post(
+                    "/api/alarm/volume",
+                    headers=headers,
+                    json={"volume": 65},
+                )
+
+        self.assertEqual(test_response.status_code, 200)
+        self.assertEqual(cancel_response.status_code, 200)
+        self.assertEqual(volume_response.get_json()["volume"], 65)
+        self.assertEqual(publish.call_count, 3)
+        self.assertTrue(publish.call_args_list[-1].kwargs["retain"])
+
+    def test_alarm_volume_rejects_out_of_range_value(self):
+        with patch.dict(os.environ, {"ADMIN_TOKEN": "alarm-secret"}):
+            response = self.client.post(
+                "/api/alarm/volume",
+                headers={"X-Admin-Token": "alarm-secret"},
+                json={"volume": 101},
+            )
+        self.assertEqual(response.status_code, 400)
 
 
 if __name__ == "__main__":

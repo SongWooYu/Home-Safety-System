@@ -4,6 +4,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import cv2
@@ -48,6 +49,7 @@ class WorkerSnapshot:
     fall_confidence: float
     known_faces: int
     unknown_faces: int
+    recognized_faces: list[dict[str, Any]]
     capture_fps: float
     last_frame_age: float | None
     capture_frame_seq: int
@@ -126,6 +128,21 @@ class CameraWorker:
                 False,
             )
         )
+        self._face_font = None
+        face_font_path = Path(
+            str(
+                face_config.get(
+                    "label_font",
+                    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+                )
+            )
+        )
+        if self.face_enabled and face_font_path.is_file() and hasattr(cv2, "freetype"):
+            try:
+                self._face_font = cv2.freetype.createFreeType2()
+                self._face_font.loadFontData(fontFileName=str(face_font_path), idx=0)
+            except cv2.error:
+                self._face_font = None
         self.fall_tracker = FallTracker(
             keypoint_confidence=float(fall_config.get("keypoint_confidence", 0.25)),
             transition_window=float(fall_config.get("transition_window", 3.0)),
@@ -860,12 +877,38 @@ class CameraWorker:
         for face in self._faces:
             x1, y1, x2, y2 = face["box"]
             color = (255, 200, 40) if face["registered"] else (80, 80, 255)
-            label = "KNOWN" if face["registered"] else "UNKNOWN"
+            display_name = str(face["name"]) if face["registered"] else "미등록"
+            label = f"{display_name} {face['similarity']:.2f}"
+            label_origin = (x1, min(frame.shape[0] - 8, y2 + 26))
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            if self._face_font is not None:
+                try:
+                    self._face_font.putText(
+                        frame,
+                        label,
+                        label_origin,
+                        21,
+                        color,
+                        1,
+                        cv2.LINE_AA,
+                        False,
+                    )
+                    continue
+                except cv2.error:
+                    pass
+            fallback = (
+                label
+                if label.isascii()
+                else (
+                    f"KNOWN {face['similarity']:.2f}"
+                    if face["registered"]
+                    else f"UNKNOWN {face['similarity']:.2f}"
+                )
+            )
             cv2.putText(
                 frame,
-                f"{label} {face['similarity']:.2f}",
-                (x1, min(frame.shape[0] - 8, y2 + 22)),
+                fallback,
+                label_origin,
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.55,
                 color,
@@ -1117,6 +1160,15 @@ class CameraWorker:
                         "registered"
                     ]
                 ),
+
+                recognized_faces=[
+                    {
+                        "name": str(face["name"]),
+                        "registered": bool(face["registered"]),
+                        "similarity": round(float(face["similarity"]), 3),
+                    }
+                    for face in self._faces
+                ],
 
                 capture_fps=round(
                     self._capture_fps,

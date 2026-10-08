@@ -77,6 +77,10 @@ def handle_command(client, payload: dict, raw: bytes) -> None:
         for camera_id in camera_states:
             camera_states[camera_id] = "cancelled"
         publish_state(client, "cancelled")
+    elif action in {"test", "test_alarm"}:
+        cancelled = False
+        camera_states["manual-test"] = "confirmed"
+        publish_state(client, "alarm", "manual-test", "dashboard-test")
 
 
 def on_connect(client, userdata, flags, reason_code, properties):

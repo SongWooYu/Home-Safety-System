@@ -11,7 +11,11 @@ SupplementaryGroups=audio
 Environment=MQTT_HOST=127.0.0.1
 Environment=MQTT_PORT=1883
 Environment=ALARM_TOPIC=home/safety/fall/alarm
+Environment=AUDIO_CONFIG_TOPIC=home/safety/fall/audio/config
 Environment=ALARM_AUDIO_DEVICE=plughw:CARD=Headphones,DEV=0
+Environment=ALARM_MIXER_CARD=0
+Environment=ALARM_MIXER_CONTROL=PCM
+Environment=ALARM_VOLUME=70
 EnvironmentFile=-/etc/default/smarthome-audio-alarm
 RuntimeDirectory=smarthome-audio-alarm
 RuntimeDirectoryMode=0700

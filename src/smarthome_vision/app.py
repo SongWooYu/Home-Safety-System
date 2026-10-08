@@ -1,11 +1,13 @@
 from __future__ import annotations
+import hashlib
 import hmac
 
 import argparse
 import time
+from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask, Response, abort, jsonify, render_template, request
+from flask import Flask, Response, abort, jsonify, render_template, request, session
 
 from .config import load_config
 from .pipeline import VisionPipeline
@@ -13,13 +15,27 @@ from .pipeline import VisionPipeline
 
 def create_app(pipeline: VisionPipeline) -> Flask:
     app = Flask(__name__, template_folder="templates")
+    face_admin_token = str(
+        pipeline.config.get("face_recognition", {}).get("admin_token", "")
+    )
+    app.secret_key = hashlib.sha256(
+        ("home-safety-face-session:" + face_admin_token).encode("utf-8")
+    ).digest()
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Strict",
+        PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+    )
 
     def face_admin_authorized() -> bool:
-        expected = str(
-            pipeline.config.get("face_recognition", {}).get("admin_token", "")
-        )
+        if face_admin_token and session.get("face_admin") is True:
+            return True
         supplied = request.headers.get("X-Face-Admin-Token", "")
-        return bool(expected and supplied and hmac.compare_digest(expected, supplied))
+        return bool(
+            face_admin_token
+            and supplied
+            and hmac.compare_digest(face_admin_token, supplied)
+        )
 
     @app.get("/")
     def index():
@@ -73,6 +89,20 @@ def create_app(pipeline: VisionPipeline) -> Flask:
     @app.get("/api/events")
     def events():
         return jsonify(pipeline.event_bus.recent())
+
+    @app.post("/api/faces/admin/session")
+    def create_face_admin_session():
+        payload = request.get_json(silent=True) or {}
+        supplied = str(payload.get("token", ""))
+        if (
+            not face_admin_token
+            or not supplied
+            or not hmac.compare_digest(face_admin_token, supplied)
+        ):
+            return jsonify({"error": "얼굴 관리 키가 올바르지 않습니다."}), 401
+        session.permanent = True
+        session["face_admin"] = True
+        return jsonify({"authenticated": True, "expires_days": 30})
 
     @app.get("/api/faces")
     def faces():

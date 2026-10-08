@@ -52,6 +52,18 @@ sudo sed -n 's/^ADMIN_TOKEN=//p' pi4/.env
 - host venv collector와 systemd 서비스
 - 과거 `sensor_log` 테이블 및 센서/자동화 시험
 
+2026-10-08 실제 점검에서는 다음 구성이 현재도 별도로 실행 중이다.
+
+- `/opt/smarthome/web/app.py`: `web.service`가 Flask 개발 서버로 TCP 8000 제공
+- 기능: 방별 센서 최신값, 명령 상태, 최근 1시간 온·습도 Chart.js 그래프
+- 데이터: localhost:5432의 기존 `smarthome-postgres`에 직접 연결
+- `/opt/smarthome/backend/venv` 포함 전체 약 178 MB
+- `sync-collaborator-smarthome.timer`: 약 10초마다 `/opt/smarthome`을
+  `reference/collaborator-smarthome/`으로 rsync하며 `.env`와 venv는 제외
+- 현재 프로젝트의 Docker/Gunicorn 웹은 TCP 8081이므로 포트 충돌은 없다.
+- 기존 `smarthome-postgres`/`smarthome-mqtt`와 새 `home-safety-pi4-*`
+  컨테이너가 동시에 존재한다. 8000 웹이 기존 DB를 사용하므로 아직 삭제하지 않는다.
+
 기존 컨테이너가 감지되면 일반 설치는 아무것도 중단하지 않고 종료한다. 다음
 명령을 명시적으로 실행해야만 마이그레이션한다.
 
@@ -147,12 +159,17 @@ payload SHA-256을 대체 키로 사용한다.
 | `home/vision/status/<camera>` | Pi5→Pi4 | 예 | 5초 주기 카메라 상태 |
 | `home/safety/fall/state` | Pi4 automation→전체 | 예 | normal/suspected/alarm/cancelled |
 | `home/safety/fall/alarm` | Pi4 automation→장치 | 예 | `active: true/false` |
-| `home/safety/fall/command` | UI/음성/버튼→Pi4 | 아니오 | `{"action":"cancel"}` |
+| `home/safety/fall/command` | UI/음성/버튼→Pi4 | 아니오 | `cancel`, `test_alarm` |
+| `home/safety/fall/audio/config` | Pi4 UI→스피커 서비스 | 예 | `{"volume":0..100}` |
 
 스피커나 부저는 `home/safety/fall/alarm`을 구독해 `active=true`일 때 작동하고,
 false일 때 즉시 멈춘다. 현재 구현은 Pi4의 `bcm2835 Headphones`(3.5 mm)를
-`aplay`로 사용한다. 별도 장치를 쓰면 `/etc/default/smarthome-audio-alarm`에
-`ALARM_AUDIO_DEVICE=<ALSA 장치>`를 지정하고 서비스를 재시작한다.
+`aplay`로 사용한다. 경보음 뒤에 오프라인 `espeak-ng` 한국어 TTS로
+“낙상이 감지되었습니다”를 반복한다. 8081 화면의 시험 경보·해제 버튼으로 실제
+스피커 경로를 확인하며, 0~100 음량 슬라이더는 ALSA `PCM` 음량을 retained
+MQTT 설정으로 보존한다. 별도 장치를 쓰면
+`/etc/default/smarthome-audio-alarm`에 `ALARM_AUDIO_DEVICE=<ALSA 장치>`를
+지정하고 서비스를 재시작한다.
 
 ```bash
 systemctl status smarthome-audio-alarm.service

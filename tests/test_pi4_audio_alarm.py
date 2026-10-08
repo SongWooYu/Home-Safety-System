@@ -22,6 +22,28 @@ class Pi4AudioAlarmTest(unittest.TestCase):
         self.assertIsNone(audio_alarm.parse_alarm_active('{"active": "true"}'))
         self.assertIsNone(audio_alarm.parse_alarm_active("{}"))
 
+    def test_parses_only_bounded_integer_volume(self):
+        self.assertEqual(audio_alarm.parse_audio_volume('{"volume": 70}'), 70)
+        self.assertEqual(audio_alarm.parse_audio_volume('{"volume": 0}'), 0)
+        self.assertEqual(audio_alarm.parse_audio_volume('{"volume": 100}'), 100)
+        self.assertIsNone(audio_alarm.parse_audio_volume('{"volume": 101}'))
+        self.assertIsNone(audio_alarm.parse_audio_volume('{"volume": "70"}'))
+
+    def test_splits_verbose_mqtt_line(self):
+        self.assertEqual(
+            audio_alarm.split_topic_payload(
+                'home/safety/fall/alarm {"active": true}'
+            ),
+            ('home/safety/fall/alarm', '{"active": true}'),
+        )
+        self.assertIsNone(audio_alarm.split_topic_payload("invalid"))
+
+    def test_subscribes_to_alarm_and_retained_audio_config(self):
+        command = audio_alarm.subscriber_command()
+        self.assertIn("home/safety/fall/alarm", command)
+        self.assertIn("home/safety/fall/audio/config", command)
+        self.assertIn("-v", command)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,10 +25,31 @@ WEBRTC_CAMERAS = tuple(
     ).split(",")
     if camera.strip()
 )
+ALARM_COMMAND_TOPIC = "home/safety/fall/command"
+AUDIO_CONFIG_TOPIC = "home/safety/fall/audio/config"
 
 
 def json_value(value):
     return value if isinstance(value, dict) else json.loads(value)
+
+
+def admin_authorized() -> bool:
+    expected = os.environ.get("ADMIN_TOKEN", "")
+    supplied = request.headers.get("X-Admin-Token", "")
+    return bool(expected and supplied and hmac.compare_digest(expected, supplied))
+
+
+def publish_alarm_command(action: str) -> None:
+    single(
+        ALARM_COMMAND_TOPIC,
+        payload=json.dumps(
+            {"action": action, "source": "pi4-dashboard"},
+            ensure_ascii=False,
+        ),
+        qos=1,
+        hostname=os.getenv("MQTT_HOST", "mqtt"),
+        port=int(os.getenv("MQTT_PORT", "1883")),
+    )
 
 
 @app.get("/")
@@ -111,19 +132,37 @@ def overview():
 
 @app.post("/api/alarm/cancel")
 def cancel_alarm():
-    expected = os.environ.get("ADMIN_TOKEN", "")
-    supplied = request.headers.get("X-Admin-Token", "")
-    if not expected or not supplied or not hmac.compare_digest(expected, supplied):
+    if not admin_authorized():
         return jsonify({"error": "관리 키가 필요합니다."}), 401
-    payload = json.dumps(
-        {"action": "cancel", "source": "pi4-dashboard"},
-        ensure_ascii=False,
-    )
+    publish_alarm_command("cancel")
+    return jsonify({"sent": True, "state": "cancelled"})
+
+
+@app.post("/api/alarm/test")
+def test_alarm():
+    if not admin_authorized():
+        return jsonify({"error": "관리 키가 필요합니다."}), 401
+    publish_alarm_command("test_alarm")
+    return jsonify({"sent": True, "state": "alarm"})
+
+
+@app.post("/api/alarm/volume")
+def set_alarm_volume():
+    if not admin_authorized():
+        return jsonify({"error": "관리 키가 필요합니다."}), 401
+    payload = request.get_json(silent=True) or {}
+    try:
+        volume = int(payload.get("volume"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "음량은 0~100 정수여야 합니다."}), 400
+    if not 0 <= volume <= 100:
+        return jsonify({"error": "음량은 0~100 범위여야 합니다."}), 400
     single(
-        "home/safety/fall/command",
-        payload=payload,
+        AUDIO_CONFIG_TOPIC,
+        payload=json.dumps({"volume": volume}, ensure_ascii=False),
         qos=1,
+        retain=True,
         hostname=os.getenv("MQTT_HOST", "mqtt"),
         port=int(os.getenv("MQTT_PORT", "1883")),
     )
-    return jsonify({"sent": True})
+    return jsonify({"sent": True, "volume": volume})

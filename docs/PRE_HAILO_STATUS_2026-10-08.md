@@ -254,7 +254,7 @@ Pi5 WebRTC는 `smarthome-mediamtx.service`가 enabled/active이며, 시청자가
 
 ## 9. 테스트 상태
 
-Pi5에서 다음 명령으로 24개 테스트가 통과했다.
+Pi5에서 다음 명령으로 31개 테스트가 통과했다.
 
 ```bash
 cd /home/pi/Home-Safety-System
@@ -359,3 +359,17 @@ Hailo 전 소프트웨어 기반은 구현됐다. 다만 비전 기능의 **전�
 - Shadow JSONL 스키마 1.1은 같은 시점의 Rule 결과와 GRU track을 함께 기록한다.
 - 현장 정의·카메라 위치·TP/FP/FN/지연 기록법은
   `docs/FIELD_FALL_VALIDATION.md`를 기준으로 한다.
+
+
+## 14. Pi4 경보 제어와 얼굴 이름 표시
+
+- Pi4 8081 화면에 시험 낙상 경보 발생, 즉시 해제, 0~100 음량 제어를 추가했다.
+- 스피커는 합성 경고음 뒤에 `espeak-ng` 한국어 TTS “낙상이 감지되었습니다”를
+  반복하고 `active=false`에서 현재 재생도 즉시 중단한다.
+- 시험 경보는 실제 비전 사건/DB를 위조하지 않고 automation의 `test_alarm`
+  명령으로만 현재 안전 상태와 스피커를 켠다.
+- 얼굴 `known`은 기본값이 아니다. SFace 유사도 0.45 이상인 등록자만 실제
+  등록 이름을 표시하며 나머지는 `미등록`으로 표시한다.
+- 등록 이름은 한글 FreeType 오버레이, Pi5 상태 카드, MQTT 최신 상태, Pi4 카드에
+  전달된다. 원본 얼굴 이미지와 embedding은 전송하지 않는다.
+- 얼굴 관리 키는 평문 브라우저 저장 대신 30일 HttpOnly 서명 세션으로 기억한다.

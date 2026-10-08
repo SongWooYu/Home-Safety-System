@@ -7,12 +7,16 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 pi4_dir="$(cd "$script_dir/.." && pwd)"
 service_user="${ALARM_SERVICE_USER:-pi}"
 
-if ! command -v aplay >/dev/null 2>&1 || ! command -v mosquitto_sub >/dev/null 2>&1; then
+if ! command -v aplay >/dev/null 2>&1 \
+  || ! command -v amixer >/dev/null 2>&1 \
+  || ! command -v mosquitto_sub >/dev/null 2>&1 \
+  || ! command -v espeak-ng >/dev/null 2>&1; then
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y alsa-utils mosquitto-clients
+  DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    alsa-utils mosquitto-clients espeak-ng
 fi
 
-for command_name in python3 aplay mosquitto_sub systemctl; do
+for command_name in python3 aplay amixer mosquitto_sub espeak-ng systemctl; do
   command -v "$command_name" >/dev/null 2>&1 || {
     echo "Missing required command after package installation: $command_name" >&2
     exit 2

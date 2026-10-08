@@ -1694,8 +1694,8 @@ select{
           <input
             id="face-token"
             type="password"
-            autocomplete="off"
-            placeholder="관리 코드">
+            autocomplete="current-password"
+            placeholder="관리 코드 (한 번 인증하면 30일 기억)">
 
           <button
             id="face-admin-load"
@@ -2400,23 +2400,55 @@ function renderCamera(
   let detected =
     "-";
 
+  const recognizedFaces =
+    camera.recognized_faces
+    || [];
+
+  const faceNames =
+    [
+      ...new Set(
+        recognizedFaces
+          .filter(
+            face =>
+              face.registered
+          )
+          .map(
+            face =>
+              face.name
+          )
+      )
+    ];
+
   if(
+    faceNames.length
+    || camera.unknown_faces
+  ){
+
+    const faceSummary =
+      faceNames.slice();
+
+    if(camera.unknown_faces){
+
+      faceSummary.push(
+        "미등록 "
+        + camera.unknown_faces
+        + "명"
+      );
+
+    }
+
+    detected =
+      faceSummary.join(" · ");
+
+  }else if(
     camera.person_count
   ){
 
     detected =
-      `${camera.person_count}명`;
-
-  }else if(
-    camera.known_faces
-    || camera.unknown_faces
-  ){
-
-    detected =
-      `얼굴 ${
-        camera.known_faces
-        + camera.unknown_faces
-      }`;
+      String(
+        camera.person_count
+      )
+      + "명";
 
   }
 
@@ -3048,9 +3080,7 @@ const viewLabels = {
 
 
 faceToken.value =
-  sessionStorage.getItem(
-    "faceAdminToken"
-  ) || "";
+  "";
 
 
 async function faceRequest(
@@ -3086,26 +3116,43 @@ async function faceRequest(
 }
 
 
+async function establishFaceAdminSession(){
+
+  const token =
+    faceToken.value.trim();
+
+  if(!token)
+    return;
+
+  await faceRequest(
+    "/api/faces/admin/session",
+    {
+      method:"POST",
+      headers:{
+        "Content-Type":
+          "application/json"
+      },
+      body:
+        JSON.stringify({
+          token:token
+        })
+    }
+  );
+
+  faceToken.value =
+    "";
+
+}
+
+
 async function faceAdminRequest(
   url,
   options={}
 ){
 
-  const token =
-    faceToken.value.trim();
-
-  const headers = {
-    ...(options.headers || {}),
-    "X-Face-Admin-Token":
-      token
-  };
-
   return faceRequest(
     url,
-    {
-      ...options,
-      headers
-    }
+    options
   );
 
 }
@@ -3250,25 +3297,9 @@ function renderFaceList(
 
 async function refreshFaces(){
 
-  if(
-    !faceToken.value.trim()
-  ){
-
-    faceAdminStatus.textContent =
-      "관리 코드를 입력하세요.";
-
-    return;
-
-  }
-
-
-  sessionStorage.setItem(
-    "faceAdminToken",
-    faceToken.value.trim()
-  );
-
-
   try{
+
+    await establishFaceAdminSession();
 
     const data =
       await faceAdminRequest(
@@ -3276,7 +3307,7 @@ async function refreshFaces(){
       );
 
     faceAdminStatus.textContent =
-      `등록자 ${data.people.length}명`;
+      `등록자 ${data.people.length}명 · 이 브라우저에서 관리 키 기억 중`;
 
     renderFaceList(
       data.people
@@ -3374,11 +3405,7 @@ document
           + `${person.samples}장 등록 완료`;
 
 
-        if(
-          faceToken.value.trim()
-        ){
-          await refreshFaces();
-        }
+        await refreshFaces();
 
 
       }catch(error){

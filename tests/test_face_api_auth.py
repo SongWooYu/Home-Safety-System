@@ -62,6 +62,22 @@ class FaceApiAuthorizationTest(unittest.TestCase):
         )
         self.assertEqual(self.pipeline.deleted, ["person-1"])
 
+    def test_face_admin_key_becomes_persistent_http_only_session(self):
+        denied = self.client.post(
+            "/api/faces/admin/session",
+            json={"token": "wrong"},
+        )
+        accepted = self.client.post(
+            "/api/faces/admin/session",
+            json={"token": "delete-secret"},
+        )
+
+        self.assertEqual(denied.status_code, 401)
+        self.assertEqual(accepted.status_code, 200)
+        self.assertIn("HttpOnly", accepted.headers["Set-Cookie"])
+        self.assertIn("SameSite=Strict", accepted.headers["Set-Cookie"])
+        self.assertEqual(self.client.get("/api/faces").status_code, 200)
+
     def test_dashboard_separates_open_enrollment_from_protected_management(self):
         response = self.client.get("/")
 
@@ -69,6 +85,8 @@ class FaceApiAuthorizationTest(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("등록에는 관리 코드 불필요", html)
         self.assertIn("등록자 목록·삭제", html)
+        self.assertIn("한 번 인증하면 30일 기억", html)
+        self.assertNotIn("faceAdminToken", html)
         token_input = html.split('id="face-token"', 1)[1].split(">", 1)[0]
         self.assertNotIn("required", token_input)
 
