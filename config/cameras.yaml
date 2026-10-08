@@ -62,16 +62,15 @@ face_recognition:
 fall_detection:
   enabled: true
 
-  # 현재 NCNN 320 baseline.
-  #
-  # 640/960 비교 후 최종 변경 예정.
+  # Pi5 CPU pre-Hailo baseline.
+  # 640 export는 전체 서비스에서 약 7.9 FPS,
+  # 960 export는 단독으로 약 5.4 FPS라 현재 사용할 수 없다.
   model:
     models/yolo11n-pose_ncnn_model
 
   input_size: 320
 
-  # GRU 학습 pose cache와 맞추기 위해
-  # 기존 0.35 대신 우선 0.10 사용.
+  # 현재 320 export의 score calibration.
   confidence: 0.10
 
   nms_iou: 0.45
@@ -90,6 +89,11 @@ fall_detection:
   confirm_seconds: 1.2
   recovery_seconds: 2.0
 
+  # active: MQTT 경보 전송, shadow: 로컬 진단만 수행.
+  # 안전 기능 변경은 사용자 승인 후에만 shadow로 전환한다.
+  rule:
+    mode: active
+
   # B_76_sqrt 3-seed GRU.
   #
   # 현재는 기존 RuleFallDetector와
@@ -106,12 +110,27 @@ fall_detection:
     sample_fps: 10
     keypoint_confidence: 0.25
 
-    # Balanced development profile.
-    threshold: 0.92
-    consecutive: 1
+    # Quiet development profile: 순간 spike보다 4프레임 지속성을 우선한다.
+    # 실제 전시장 검증 전까지 shadow 결과만 생성한다.
+    threshold: 0.89
+    consecutive: 4
 
     max_missing_frames: 10
     expire_seconds: 1.5
+    release_frames: 3
+    cooldown_seconds: 5.0
+
+    # 진단용 메타데이터이며 아직 경보 차단 조건으로 쓰지 않는다.
+    quality_min_visible_ratio: 0.35
+    quality_min_valid_frame_ratio: 0.75
+    quality_edge_margin_ratio: 0.01
+
+    # 원본 영상/얼굴은 저장하지 않는다. JSONL 한 세대만 순환 보관한다.
+    observation_log:
+      enabled: true
+      path: runtime/fall-shadow-observations-quiet.jsonl
+      interval_seconds: 1.0
+      max_bytes: 20971520
 
 
 cameras:

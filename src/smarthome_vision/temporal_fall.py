@@ -381,9 +381,16 @@ class _Track:
             dtype=np.float32,
         )
 
+        self.velocity = np.zeros(
+            4,
+            dtype=np.float32,
+        )
+
         self.last_seen = now
 
         self.missed = 0
+        self.hits = 1
+        self.age = 1
 
         self.buffer = deque(
             maxlen=sequence_length
@@ -398,6 +405,10 @@ class _Track:
         self.inference_ms = 0.0
 
         self.consecutive_hits = 0
+        self.release_misses = 0
+        self.alert_active = False
+        self.cooldown_until = 0.0
+        self.transition: str | None = None
 
 
 class TemporalFallShadow:
@@ -417,6 +428,11 @@ class TemporalFallShadow:
         consecutive: int = 1,
         max_missing_frames: int = 10,
         expire_seconds: float = 1.5,
+        release_frames: int = 3,
+        cooldown_seconds: float = 5.0,
+        quality_min_visible_ratio: float = 0.35,
+        quality_min_valid_frame_ratio: float = 0.75,
+        quality_edge_margin_ratio: float = 0.01,
     ):
         self.ensemble = ensemble
 
@@ -445,6 +461,31 @@ class TemporalFallShadow:
             expire_seconds,
         )
 
+        self.release_frames = max(
+            1,
+            release_frames,
+        )
+
+        self.cooldown_seconds = max(
+            0.0,
+            cooldown_seconds,
+        )
+
+        self.quality_min_visible_ratio = max(
+            0.0,
+            min(1.0, quality_min_visible_ratio),
+        )
+
+        self.quality_min_valid_frame_ratio = max(
+            0.0,
+            min(1.0, quality_min_valid_frame_ratio),
+        )
+
+        self.quality_edge_margin_ratio = max(
+            0.0,
+            min(0.25, quality_edge_margin_ratio),
+        )
+
         self._tracks: dict[
             int,
             _Track,
@@ -461,6 +502,63 @@ class TemporalFallShadow:
             pose["box"],
             dtype=np.float32,
         )
+
+    def _quality_status(
+        self,
+        track: _Track,
+        frame_shape: tuple[int, ...],
+        ready: bool,
+    ) -> dict:
+        features = list(track.buffer)
+        valid = [float(item[74]) >= 0.5 for item in features]
+        valid_frame_ratio = float(np.mean(valid)) if valid else 0.0
+        visible_values = [
+            float(item[75])
+            for item, is_valid in zip(features, valid)
+            if is_valid
+        ]
+        mean_visible_ratio = (
+            float(np.mean(visible_values)) if visible_values else 0.0
+        )
+        current_visible_ratio = (
+            float(features[-1][75]) if features and valid[-1] else 0.0
+        )
+
+        frame_h, frame_w = frame_shape[:2]
+        margin_x = frame_w * self.quality_edge_margin_ratio
+        margin_y = frame_h * self.quality_edge_margin_ratio
+        x1, y1, x2, y2 = (float(value) for value in track.box)
+        edge_sides = []
+        if x1 <= margin_x:
+            edge_sides.append("left")
+        if y1 <= margin_y:
+            edge_sides.append("top")
+        if x2 >= frame_w - 1 - margin_x:
+            edge_sides.append("right")
+        if y2 >= frame_h - 1 - margin_y:
+            edge_sides.append("bottom")
+
+        box_area_ratio = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+        box_area_ratio /= max(1.0, float(frame_w * frame_h))
+
+        quality_flags = []
+        if mean_visible_ratio < self.quality_min_visible_ratio:
+            quality_flags.append("low_keypoint_visibility")
+        if valid_frame_ratio < self.quality_min_valid_frame_ratio:
+            quality_flags.append("missing_pose_frames")
+        if edge_sides:
+            quality_flags.append("frame_edge_clipped")
+
+        return {
+            "current_visible_keypoint_ratio": round(current_visible_ratio, 4),
+            "mean_visible_keypoint_ratio": round(mean_visible_ratio, 4),
+            "valid_frame_ratio": round(valid_frame_ratio, 4),
+            "bbox_area_ratio": round(box_area_ratio, 4),
+            "bbox_edge_sides": edge_sides,
+            "quality_flags": quality_flags,
+            "quality_eligible": ready and not quality_flags,
+            "quality_is_diagnostic_only": True,
+        }
 
     def _associate(
         self,
@@ -502,7 +600,16 @@ class TemporalFallShadow:
             self._tracks.items()
         ):
 
-            ta = track.box
+            prediction_steps = min(
+                track.missed + 1,
+                3,
+            )
+
+            ta = (
+                track.box
+                + track.velocity
+                * prediction_steps
+            )
 
             tcx = (
                 ta[0]
@@ -549,13 +656,42 @@ class TemporalFallShadow:
                     pb,
                 )
 
+                track_w = max(
+                    1.0,
+                    float(ta[2] - ta[0]),
+                )
+                track_h = max(
+                    1.0,
+                    float(ta[3] - ta[1]),
+                )
+                pose_w = max(
+                    1.0,
+                    float(pb[2] - pb[0]),
+                )
+                pose_h = max(
+                    1.0,
+                    float(pb[3] - pb[1]),
+                )
+
+                size_penalty = (
+                    abs(math.log(pose_w / track_w))
+                    + abs(math.log(pose_h / track_h))
+                )
+
+                max_distance = (
+                    0.12
+                    + min(track.missed, 3)
+                    * 0.04
+                )
+
                 if (
-                    overlap >= 0.05
-                    or distance <= 0.20
+                    overlap >= 0.03
+                    or distance <= max_distance
                 ):
                     score = (
-                        overlap * 2.0
+                        overlap * 3.0
                         - distance
+                        - size_penalty * 0.10
                     )
 
                     candidates.append(
@@ -653,9 +789,13 @@ class TemporalFallShadow:
                 track_id
             )
 
+            track.age += 1
+            track.transition = None
+
             if pose_index is None:
 
                 track.missed += 1
+                track.velocity *= np.float32(0.85)
 
                 if (
                     track.missed
@@ -688,12 +828,32 @@ class TemporalFallShadow:
                     pose_index
                 ]
 
-                track.box = self._box(
+                new_box = self._box(
                     pose
                 )
 
+                delta = (
+                    new_box
+                    - track.box
+                ).astype(
+                    np.float32,
+                    copy=False,
+                )
+
+                track.velocity = (
+                    track.velocity
+                    * np.float32(0.65)
+                    + delta
+                    * np.float32(0.35)
+                ).astype(
+                    np.float32,
+                    copy=False,
+                )
+
+                track.box = new_box
                 track.last_seen = now
                 track.missed = 0
+                track.hits += 1
 
                 track.buffer.append(
                     build_b76_feature(
@@ -782,8 +942,41 @@ class TemporalFallShadow:
                 >= self.threshold
             ):
                 track.consecutive_hits += 1
+                track.release_misses = 0
+
+                if (
+                    not track.alert_active
+                    and track.consecutive_hits
+                    >= self.consecutive
+                    and now
+                    >= track.cooldown_until
+                ):
+                    track.alert_active = True
+                    track.transition = (
+                        "fall_shadow_confirmed"
+                    )
+
             else:
                 track.consecutive_hits = 0
+
+                if track.alert_active:
+                    track.release_misses += 1
+
+                    if (
+                        track.release_misses
+                        >= self.release_frames
+                    ):
+                        track.alert_active = False
+                        track.release_misses = 0
+                        track.cooldown_until = (
+                            now
+                            + self.cooldown_seconds
+                        )
+                        track.transition = (
+                            "fall_shadow_cleared"
+                        )
+                else:
+                    track.release_misses = 0
 
         statuses = []
 
@@ -859,6 +1052,12 @@ class TemporalFallShadow:
                     "missed_frames":
                         track.missed,
 
+                    "hits":
+                        track.hits,
+
+                    "age_frames":
+                        track.age,
+
                     "last_seen_age":
                         round(
                             max(
@@ -917,15 +1116,36 @@ class TemporalFallShadow:
                     "shadow_alert":
                         (
                             ready
-                            and track.consecutive_hits
-                            >= self.consecutive
+                            and track.alert_active
                         ),
+
+                    "release_misses":
+                        track.release_misses,
+
+                    "cooldown_remaining":
+                        round(
+                            max(
+                                0.0,
+                                track.cooldown_until
+                                - now,
+                            ),
+                            3,
+                        ),
+
+                    "transition":
+                        track.transition,
 
                     "inference_ms":
                         round(
                             track.inference_ms,
                             3,
                         ),
+
+                    **self._quality_status(
+                        track,
+                        frame_shape,
+                        ready,
+                    ),
                 }
             )
 

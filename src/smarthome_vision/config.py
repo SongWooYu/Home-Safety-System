@@ -74,6 +74,15 @@ def load_config(path: str | Path) -> dict[str, Any]:
                     / temporal_model_path
                 )
 
+            observation_log = temporal_config.get(
+                "observation_log",
+                {},
+            )
+            if observation_log.get("path"):
+                log_path = Path(observation_log["path"])
+                if not log_path.is_absolute():
+                    observation_log["path"] = str(project_root / log_path)
+
     face_config = data.get("face_recognition", {})
     if face_config.get("enabled", False):
         for key in ("detector_model", "recognizer_model", "database"):

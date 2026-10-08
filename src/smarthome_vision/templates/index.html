@@ -1429,6 +1429,26 @@ select{
 
             </div>
 
+            <div class="metric">
+              <div class="metric-name">Pose 실효 FPS</div>
+              <div class="metric-value" id="pose-effective-fps">-</div>
+            </div>
+
+            <div class="metric">
+              <div class="metric-name">Pose 지연 평균 / p95</div>
+              <div class="metric-value" id="pose-latency">-</div>
+            </div>
+
+            <div class="metric">
+              <div class="metric-name">Pose 입력 age</div>
+              <div class="metric-value" id="pose-input-age">-</div>
+            </div>
+
+            <div class="metric">
+              <div class="metric-name">중복 방지 / source skip</div>
+              <div class="metric-value" id="pose-frame-accounting">-</div>
+            </div>
+
           </div>
 
           <div class="notice">
@@ -1547,6 +1567,8 @@ select{
                   <th>Falling</th>
                   <th>Fallen</th>
                   <th>Alert</th>
+                  <th>KP / Valid</th>
+                  <th>품질</th>
                   <th>GRU ms</th>
                 </tr>
               </thead>
@@ -1554,7 +1576,7 @@ select{
               <tbody id="track-body">
 
                 <tr>
-                  <td colspan="8">
+                  <td colspan="10">
                     Track 대기 중
                   </td>
                 </tr>
@@ -2461,10 +2483,43 @@ function renderFallAI(
     `${camera.person_count || 0}명`;
 
 
+  document.getElementById(
+    "pose-effective-fps"
+  ).textContent =
+    `${Number(camera.pose_effective_fps || 0).toFixed(1)}`
+    + ` / ${Number(camera.pose_target_fps || 0).toFixed(1)}`;
+
+
+  document.getElementById(
+    "pose-latency"
+  ).textContent =
+    `${Number(camera.pose_inference_ms || 0).toFixed(1)}`
+    + ` / ${Number(camera.pose_inference_p95_ms || 0).toFixed(1)} ms`;
+
+
+  document.getElementById(
+    "pose-input-age"
+  ).textContent =
+    `${Number(camera.pose_input_age_ms || 0).toFixed(1)} ms`;
+
+
+  document.getElementById(
+    "pose-frame-accounting"
+  ).textContent =
+    `${camera.pose_duplicate_frames_prevented || 0}`
+    + ` / ${camera.pose_source_frames_skipped || 0}`;
+
+
   const ruleBadge =
     document.getElementById(
       "rule-badge"
     );
+
+  const ruleMode =
+    String(
+      camera.rule_mode
+      || "active"
+    ).toUpperCase();
 
   if(
     camera.fall_state
@@ -2475,7 +2530,7 @@ function renderFallAI(
       "badge danger";
 
     ruleBadge.textContent =
-      "낙상";
+      `낙상 · ${ruleMode}`;
 
   }else if(
     camera.fall_state
@@ -2486,7 +2541,7 @@ function renderFallAI(
       "badge warning";
 
     ruleBadge.textContent =
-      "의심";
+      `의심 · ${ruleMode}`;
 
   }else{
 
@@ -2494,7 +2549,7 @@ function renderFallAI(
       "badge online";
 
     ruleBadge.textContent =
-      "정상";
+      `정상 · ${ruleMode}`;
 
   }
 
@@ -2591,7 +2646,7 @@ function renderTracks(
 
     body.innerHTML =
       '<tr>'
-      + '<td colspan="8">'
+      + '<td colspan="10">'
       + '사람 Track 대기 중'
       + '</td>'
       + '</tr>';
@@ -2614,6 +2669,17 @@ function renderTracks(
           stateLabel(
             track.state
           );
+
+        const qualityFlags =
+          track.quality_flags
+          || [];
+
+        const quality =
+          track.quality_eligible
+            ? "양호"
+            : qualityFlags.length
+              ? qualityFlags.join(", ")
+              : "진단 중";
 
         return `
           <tr>
@@ -2644,6 +2710,16 @@ function renderTracks(
 
             <td>
               ${percent(track.alert_score)}
+            </td>
+
+            <td>
+              ${percent(track.mean_visible_keypoint_ratio)}
+              /
+              ${percent(track.valid_frame_ratio)}
+            </td>
+
+            <td>
+              ${quality}
             </td>
 
             <td>
@@ -2702,7 +2778,13 @@ const eventLabels = {
     "낙상 감지",
 
   fall_cleared:
-    "낙상 상태 해제"
+    "낙상 상태 해제",
+
+  fall_shadow_confirmed:
+    "GRU Shadow 감지",
+
+  fall_shadow_cleared:
+    "GRU Shadow 해제"
 };
 
 

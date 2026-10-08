@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +14,7 @@ from .fall_detection import FallTracker
 from .face_registry import FaceRegistry
 from .gru_numpy import NumpyFallEnsemble
 from .inference import NcnnPoseEstimator
+from .shadow_log import ShadowObservationLog
 from .temporal_fall import TemporalFallShadow
 from .sources import PiCameraSource, RtspSource, UsbCameraSource
 from .sources.base import CameraSource
@@ -40,6 +42,7 @@ class WorkerSnapshot:
     object_count: int
     detected_objects: dict[str, int]
     pose_enabled: bool
+    rule_mode: str
     pose_state: str
     fall_state: str
     fall_confidence: float
@@ -47,12 +50,23 @@ class WorkerSnapshot:
     unknown_faces: int
     capture_fps: float
     last_frame_age: float | None
+    capture_frame_seq: int
+    pose_target_fps: float
+    pose_effective_fps: float
+    pose_inference_ms: float
+    pose_inference_p95_ms: float
+    pose_input_age_ms: float
+    pose_unique_frames: int
+    pose_source_frames_skipped: int
+    pose_duplicate_frames_prevented: int
     temporal_enabled: bool
     temporal_mode: str
     temporal_state: str
     temporal_alert_score: float
     temporal_best_track_id: int | None
     temporal_tracks: list[dict[str, Any]]
+    temporal_observation_logging: bool
+    temporal_observation_log_error: str | None
     error: str | None
 
 
@@ -92,7 +106,11 @@ class CameraWorker:
             and pose_estimator is not None
             and camera_config.get("fall_detection", True)
         )
-        self.pose_interval = 1.0 / max(float(fall_config.get("analysis_fps", 1.5)), 0.1)
+        self.pose_target_fps = max(
+            float(fall_config.get("analysis_fps", 1.5)),
+            0.1,
+        )
+        self.pose_interval = 1.0 / self.pose_target_fps
         self.status_publish_interval = max(status_publish_interval, 1.0)
         self.face_interval = 1.0 / max(float(face_config.get("analysis_fps", 1.0)), 0.1)
         self.face_enabled = bool(
@@ -114,6 +132,11 @@ class CameraWorker:
             confirm_seconds=float(fall_config.get("confirm_seconds", 1.2)),
             recovery_seconds=float(fall_config.get("recovery_seconds", 2.0)),
         )
+        self.rule_mode = str(
+            fall_config.get("rule", {}).get("mode", "active")
+        ).lower()
+        if self.rule_mode not in {"active", "shadow"}:
+            raise ValueError("fall_detection.rule.mode must be active or shadow")
 
         temporal_config = fall_config.get(
             "temporal",
@@ -128,6 +151,7 @@ class CameraWorker:
         )
 
         self.temporal_fall = None
+        self.shadow_log: ShadowObservationLog | None = None
 
         if (
             self.pose_enabled
@@ -179,7 +203,36 @@ class CameraWorker:
                         1.5,
                     )
                 ),
+                release_frames=int(
+                    temporal_config.get(
+                        "release_frames",
+                        3,
+                    )
+                ),
+                cooldown_seconds=float(
+                    temporal_config.get(
+                        "cooldown_seconds",
+                        5.0,
+                    )
+                ),
+                quality_min_visible_ratio=float(
+                    temporal_config.get("quality_min_visible_ratio", 0.35)
+                ),
+                quality_min_valid_frame_ratio=float(
+                    temporal_config.get("quality_min_valid_frame_ratio", 0.75)
+                ),
+                quality_edge_margin_ratio=float(
+                    temporal_config.get("quality_edge_margin_ratio", 0.01)
+                ),
             )
+
+            observation_config = temporal_config.get("observation_log", {})
+            if observation_config.get("enabled", False) and observation_config.get("path"):
+                self.shadow_log = ShadowObservationLog(
+                    path=observation_config["path"],
+                    interval_seconds=float(observation_config.get("interval_seconds", 1.0)),
+                    max_bytes=int(observation_config.get("max_bytes", 20 * 1024 * 1024)),
+                )
 
         self._temporal_tracks: list[
             dict[str, Any]
@@ -190,6 +243,8 @@ class CameraWorker:
         self._thread: threading.Thread | None = None
         self._ai_thread: threading.Thread | None = None
         self._latest_frame: np.ndarray | None = None
+        self._latest_frame_seq = 0
+        self._latest_frame_captured_at: float | None = None
         self._jpeg: bytes | None = None
         self._detections: list[dict] = []
         self._poses: list[dict] = []
@@ -203,6 +258,12 @@ class CameraWorker:
         self._faces: list[dict] = []
         self._registration_frame: np.ndarray | None = None
         self._last_registration_frame_at = 0.0
+        self._pose_completed_at = deque(maxlen=120)
+        self._pose_latency_ms = deque(maxlen=120)
+        self._pose_input_age_ms = 0.0
+        self._pose_unique_frames = 0
+        self._pose_source_frames_skipped = 0
+        self._pose_duplicate_frames_prevented = 0
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -268,6 +329,8 @@ class CameraWorker:
             # 별도 copy를 하지 않아 capture 부하를 줄인다.
             with self._lock:
                 self._latest_frame = frame
+                self._latest_frame_seq += 1
+                self._latest_frame_captured_at = now
 
             # 얼굴 등록용 frame은 낮은 주기로만 copy.
             if (
@@ -375,6 +438,9 @@ class CameraWorker:
 
         next_pose_analysis = 0.0
         next_face_analysis = 0.0
+        last_pose_frame_seq = 0
+        last_face_frame_seq = 0
+        duplicate_counted_seq = -1
 
         while not self._stop.is_set():
 
@@ -392,6 +458,14 @@ class CameraWorker:
 
                 last_frame_at = (
                     self._last_frame_at
+                )
+
+                frame_seq = (
+                    self._latest_frame_seq
+                )
+
+                frame_captured_at = (
+                    self._latest_frame_captured_at
                 )
 
             if (
@@ -414,21 +488,61 @@ class CameraWorker:
             # Pose / Fall
             # --------------------------------------
 
-            if (
+            pose_due = (
                 self.pose_enabled
                 and self.pose_estimator
                 is not None
                 and now
                 >= next_pose_analysis
+            )
+
+            if (
+                pose_due
+                and frame_seq
+                == last_pose_frame_seq
             ):
 
-                # start-to-start scheduling:
-                # inference 시간이 interval보다 짧으면
-                # 정확히 목표 Hz에 가깝게 동작한다.
+                if duplicate_counted_seq != frame_seq:
+                    with self._lock:
+                        self._pose_duplicate_frames_prevented += 1
+                    duplicate_counted_seq = frame_seq
+
+            elif pose_due:
+
+                # Only a newly captured frame can enter the temporal buffer.
+                # This prevents a stalled RTSP frame from being repeated at 10 Hz.
+                previous_pose_frame_seq = last_pose_frame_seq
+                last_pose_frame_seq = frame_seq
+                duplicate_counted_seq = -1
+
                 next_pose_analysis = (
                     now
                     + self.pose_interval
                 )
+
+                source_frames_skipped = (
+                    max(
+                        0,
+                        frame_seq
+                        - previous_pose_frame_seq
+                        - 1,
+                    )
+                    if previous_pose_frame_seq
+                    else 0
+                )
+
+                input_age_ms = (
+                    max(
+                        0.0,
+                        now - frame_captured_at,
+                    )
+                    * 1000.0
+                    if frame_captured_at
+                    is not None
+                    else 0.0
+                )
+
+                pose_started = time.perf_counter()
 
                 try:
 
@@ -438,6 +552,19 @@ class CameraWorker:
                             frame
                         )
                     )
+
+                    pose_finished = time.monotonic()
+                    pose_latency_ms = (
+                        time.perf_counter()
+                        - pose_started
+                    ) * 1000.0
+
+                    with self._lock:
+                        self._pose_unique_frames += 1
+                        self._pose_source_frames_skipped += source_frames_skipped
+                        self._pose_input_age_ms = input_age_ms
+                        self._pose_latency_ms.append(pose_latency_ms)
+                        self._pose_completed_at.append(pose_finished)
 
                     detections = [
                         {
@@ -492,6 +619,58 @@ class CameraWorker:
                                 temporal_tracks
                             )
 
+                        transitions_present = any(
+                            track.get("transition") for track in temporal_tracks
+                        )
+                        if self.shadow_log is not None:
+                            self.shadow_log.maybe_write(
+                                {
+                                    "schema_version": "1.0",
+                                    "camera_id": self.camera_id,
+                                    "frame_seq": frame_seq,
+                                    "pose_input_age_ms": round(input_age_ms, 3),
+                                    "pose_inference_ms": round(pose_latency_ms, 3),
+                                    "tracks": temporal_tracks,
+                                },
+                                now=pose_finished,
+                                force=transitions_present,
+                            )
+
+                        for track in temporal_tracks:
+                            transition = track.get(
+                                "transition"
+                            )
+
+                            if transition:
+                                self.event_bus.emit(
+                                    self.camera_id,
+                                    str(transition),
+                                    float(
+                                        track.get(
+                                            "alert_score",
+                                            0.0,
+                                        )
+                                    ),
+                                    {
+                                        "shadow": True,
+                                        "published_to_mqtt": False,
+                                        "model": "B_76_sqrt_3seed_ensemble",
+                                        "track_id": track.get("track_id"),
+                                        "state": track.get("state"),
+                                        "normal": track.get("normal"),
+                                        "falling": track.get("falling"),
+                                        "fallen": track.get("fallen"),
+                                        "threshold": track.get("threshold"),
+                                        "quality_flags": track.get("quality_flags"),
+                                        "mean_visible_keypoint_ratio": track.get(
+                                            "mean_visible_keypoint_ratio"
+                                        ),
+                                        "valid_frame_ratio": track.get("valid_frame_ratio"),
+                                        "bbox_edge_sides": track.get("bbox_edge_sides"),
+                                    },
+                                    publish=False,
+                                )
+
                     if pose_result.event_type:
 
                         severity = (
@@ -527,8 +706,20 @@ class CameraWorker:
                                 "source_type":
                                     self.source_type,
 
+                                "shadow":
+                                    self.rule_mode
+                                    != "active",
+
+                                "published_to_mqtt":
+                                    self.rule_mode
+                                    == "active",
+
                                 **pose_result.metrics,
                             },
+                            publish=(
+                                self.rule_mode
+                                == "active"
+                            ),
                         )
 
                 except Exception as exc:
@@ -552,7 +743,11 @@ class CameraWorker:
                 is not None
                 and now
                 >= next_face_analysis
+                and frame_seq
+                != last_face_frame_seq
             ):
+
+                last_face_frame_seq = frame_seq
 
                 next_face_analysis = (
                     now
@@ -809,6 +1004,46 @@ class CameraWorker:
                 temporal_alert_score = 0.0
                 temporal_best_track_id = None
 
+            pose_times = list(
+                self._pose_completed_at
+            )
+
+            if (
+                len(pose_times) >= 2
+                and pose_times[-1]
+                > pose_times[0]
+            ):
+                pose_effective_fps = (
+                    (len(pose_times) - 1)
+                    / (
+                        pose_times[-1]
+                        - pose_times[0]
+                    )
+                )
+            else:
+                pose_effective_fps = 0.0
+
+            pose_latencies = list(
+                self._pose_latency_ms
+            )
+
+            pose_inference_ms = (
+                float(np.mean(pose_latencies))
+                if pose_latencies
+                else 0.0
+            )
+
+            pose_inference_p95_ms = (
+                float(
+                    np.percentile(
+                        pose_latencies,
+                        95,
+                    )
+                )
+                if pose_latencies
+                else 0.0
+            )
+
             return WorkerSnapshot(
                 camera_id=self.camera_id,
                 label=self.label,
@@ -838,6 +1073,8 @@ class CameraWorker:
                 ),
 
                 pose_enabled=self.pose_enabled,
+
+                rule_mode=self.rule_mode,
 
                 pose_state=(
                     self.fall_tracker
@@ -887,6 +1124,47 @@ class CameraWorker:
                     else None
                 ),
 
+                capture_frame_seq=(
+                    self._latest_frame_seq
+                ),
+
+                pose_target_fps=round(
+                    self.pose_target_fps,
+                    2,
+                ),
+
+                pose_effective_fps=round(
+                    pose_effective_fps,
+                    2,
+                ),
+
+                pose_inference_ms=round(
+                    pose_inference_ms,
+                    2,
+                ),
+
+                pose_inference_p95_ms=round(
+                    pose_inference_p95_ms,
+                    2,
+                ),
+
+                pose_input_age_ms=round(
+                    self._pose_input_age_ms,
+                    2,
+                ),
+
+                pose_unique_frames=(
+                    self._pose_unique_frames
+                ),
+
+                pose_source_frames_skipped=(
+                    self._pose_source_frames_skipped
+                ),
+
+                pose_duplicate_frames_prevented=(
+                    self._pose_duplicate_frames_prevented
+                ),
+
                 temporal_enabled=(
                     self.temporal_fall
                     is not None
@@ -914,6 +1192,16 @@ class CameraWorker:
 
                 temporal_tracks=(
                     temporal_tracks
+                ),
+
+                temporal_observation_logging=(
+                    self.shadow_log is not None
+                ),
+
+                temporal_observation_log_error=(
+                    self.shadow_log.last_error
+                    if self.shadow_log is not None
+                    else None
                 ),
 
                 error=self._error,

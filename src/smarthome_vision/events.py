@@ -71,6 +71,8 @@ class EventBus:
         event_type: str,
         confidence: float | None = None,
         details: dict[str, Any] | None = None,
+        *,
+        publish: bool = True,
     ) -> dict[str, Any]:
         event = {
             "schema_version": "1.1",
@@ -84,7 +86,11 @@ class EventBus:
         with self._lock:
             self._events.appendleft(event)
 
-        if self._client is not None and self._connected:
+        if (
+            publish
+            and self._client is not None
+            and self._connected
+        ):
             self._client.publish(
                 self._config.get("topic_events", "home/vision/events"),
                 json.dumps(event, ensure_ascii=False),
