@@ -60,7 +60,7 @@ class EdgeFallShadowTest(unittest.TestCase):
         with EdgeFallShadow(LIBRARY) as shadow:
             self.assertEqual(
                 shadow.profile,
-                "edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v1",
+                "edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v2",
             )
 
     def test_static_lying_posture_cannot_originate_fall(self):
@@ -110,6 +110,75 @@ class EdgeFallShadowTest(unittest.TestCase):
                 events.append(tracks[0]["fall_event"])
 
         self.assertNotIn("fallen", states)
+        self.assertFalse(any(events))
+
+    def test_strong_rapid_horizontal_drop_confirms_before_track_loss(self):
+        states: list[str] = []
+        events: list[bool] = []
+        with EdgeFallShadow(LIBRARY) as shadow:
+            for frame in range(20):
+                tracks = shadow.update(
+                    [self._pose(hip_y=330.0, horizontal=False)],
+                    640,
+                    640,
+                    frame / 15.0,
+                )
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+
+            tracks = shadow.update(
+                [
+                    self._pose(
+                        hip_y=430.0,
+                        horizontal=True,
+                        box=[70.0, 250.0, 570.0, 450.0],
+                    )
+                ],
+                640,
+                640,
+                20 / 15.0,
+            )
+            states.append(tracks[0]["state"])
+            events.append(tracks[0]["fall_event"])
+
+        self.assertEqual(states[-1], "fallen")
+        self.assertTrue(events[-1])
+
+    def test_slow_deliberate_lie_down_stays_normal(self):
+        states: list[str] = []
+        events: list[bool] = []
+        with EdgeFallShadow(LIBRARY) as shadow:
+            for frame in range(20):
+                tracks = shadow.update(
+                    [self._pose(hip_y=330.0, horizontal=False)],
+                    640,
+                    640,
+                    frame / 15.0,
+                )
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+            for offset in range(1, 46):
+                hip_y = 330.0 + (100.0 * offset / 45.0)
+                tracks = shadow.update(
+                    [
+                        self._pose(
+                            hip_y=hip_y,
+                            horizontal=offset >= 40,
+                            box=(
+                                [70.0, 250.0, 570.0, 450.0]
+                                if offset >= 40
+                                else [200.0, 80.0, 440.0, 600.0]
+                            ),
+                        )
+                    ],
+                    640,
+                    640,
+                    (20 + offset) / 15.0,
+                )
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+
+        self.assertEqual(set(states), {"normal"})
         self.assertFalse(any(events))
 
 

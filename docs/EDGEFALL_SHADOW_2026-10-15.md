@@ -32,7 +32,7 @@ HEF SHA-256:
 e19856699ed47cf866d23265827f960b263f287dab5e54e82c7ce37e12525a2d
 
 Temporal profile:
-edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v1
+edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v2
 ```
 
 The HEF and generated native library are kept under the Git-ignored `runtime/`
@@ -59,8 +59,11 @@ The Home-Safety-System build now applies a reproducible local policy patch:
 1. normalize hip Y before both motion thresholds and the temporal MLP;
 2. never allow temporal output alone to originate a fall;
 3. arm only after rapid downward motion plus a horizontal cue;
-4. confirm only when temporal-positive, horizontal torso **and** box, minimum
-   hip-drop distance, evidence count and confirmation time all agree.
+4. normally confirm only when temporal-positive, horizontal torso **and** box,
+   minimum hip-drop distance, evidence count and confirmation time all agree;
+5. additionally confirm an exceptionally strong impact before track loss when
+   speed is at least `0.75/s`, normalized hip drop is at least `0.05`, torso
+   angle is at least `65°`, and box aspect ratio is at least `1.50`.
 
 This is a stricter derivative policy, so upstream EdgeFallKit accuracy figures
 must not be claimed for it. It remains Shadow-only and sends no MQTT alarm
@@ -73,7 +76,7 @@ Open `http://<pi5-ip>:8080`, keep the Dahua overlay visible, and judge only the
 outputs and may disagree.
 
 Run each action five times after the profile shown by the API/dashboard becomes
-`edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v1`:
+`edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v2`:
 
 - ordinary walking and standing;
 - sitting on a chair;
@@ -82,9 +85,21 @@ Run each action five times after the profile shown by the API/dashboard becomes
 - deliberate slow lie-down;
 - staged rapid fall with the existing mat and assistant.
 
-The first five actions must produce no `fallen` transition. A staged fall must
-move through `suspected` to `fallen`; otherwise this stricter policy is trading
-too much recall for false-positive reduction and must remain Shadow-only.
+The first five actions must produce no `fallen` transition. A staged fall may
+move through `suspected` or directly reach `fallen` through the strong-impact
+path; otherwise this policy is trading too much recall for false-positive
+reduction and must remain Shadow-only.
+
+### Second staged-fall finding
+
+Repeated rapid falls onto the bed reached `suspected` but returned to `normal`.
+The learned temporal probability peaked around `0.17`, far below its frozen
+`0.75` threshold for three consecutive evaluations. One clear attempt still
+showed strong geometry (`1.99/s` hip speed, `0.062` hip drop, `68°` torso,
+`1.67` aspect ratio), but the person was reassigned from track `#1` to `#2`
+before confirmation. Lowering the learned threshold would also admit observed
+ADL false positives, so strict-motion-v2 adds only the high-specificity
+strong-impact path described above. It remains Shadow-only pending live retest.
 
 ## Why this works with HailoRT 4.23
 
