@@ -22,6 +22,14 @@ webrtcLocalTCPAddress: :8189
 webrtcAdditionalHosts: [192.168.1.20]
 
 paths:
+  # Clean Dahua H.264 pass-through for the Pi4 control-room dashboard.
+  # scripts/run_mediamtx.py overrides this placeholder from the private .env.
+  dahuaclean:
+    source: rtsp://127.0.0.1:9/unconfigured
+    sourceOnDemand: true
+    sourceOnDemandStartTimeout: 10s
+    sourceOnDemandCloseAfter: 10s
+    rtspTransport: tcp
   cam3:
     source: publisher
     runOnDemand: /home/pi/Home-Safety-System/scripts/publish_webrtc.sh cam3

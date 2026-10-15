@@ -43,10 +43,11 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
         response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        for camera_id in ("cam3", "webcam", "dahua"):
+        for camera_id in ("cam3", "webcam"):
             self.assertIn(
                 f'http://192.168.1.20:8889/{camera_id}?'.encode(), response.data
             )
+        self.assertIn(b"http://192.168.1.20:8889/dahuaclean?", response.data)
         self.assertNotIn(b"/vision/stream/", response.data)
         self.assertIn("시험 낙상 경보 발생".encode(), response.data)
         self.assertIn("낙상 경보 해제".encode(), response.data)
@@ -72,7 +73,7 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
             request_get.call_args_list,
             [
                 call("http://192.168.1.20:8080/health", timeout=3),
-                call("http://192.168.1.20:8889/cam3", timeout=3),
+                call("http://192.168.1.20:8889/dahuaclean", timeout=3),
             ],
         )
 

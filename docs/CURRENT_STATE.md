@@ -1,6 +1,17 @@
 # 현재 프로젝트 상태
 
-기준일: 2026-10-08
+기준일: 2026-10-15
+
+## 2026-10-15 핵심 변경
+
+- AI HAT+ Hailo-8 장착과 펌웨어 4.23.0 인식을 확인했다.
+- Hailo pose는 하드웨어 기준 30.80 FPS, metadata-only 파이프라인 31.75 FPS였다.
+- Pi4 관제 영상은 clean WebRTC, Pi5 `:8080`은 요청 중에만 overlay를 생성한다.
+- Dahua는 `dahuaclean` 원본 H.264 pass-through로 재인코딩을 제거했다.
+- 시청 종료 뒤 JPEG 렌더링과 FFmpeg publisher가 자동 정리된다.
+- 현재 운영 AI는 아직 NCNN이며 Hailo pose의 tracker/GRU 연결이 다음 단계다.
+- rule은 지금 삭제하지 않고 GRU active 검증 뒤 fallback을 거쳐 제거한다.
+
 
 ## 단일 기준 작업 공간
 
@@ -34,7 +45,8 @@ Pi5의 `eth0`는 현재 내려가 있고 Dahua는 Pi5에 직결하지 않는다.
 - 커널: `6.12.75+rpt-rpi-2712`
 - 로케일: `C.UTF-8`; 이전 `en_US.UTF-8` 경고는 현재 발생 조건이 제거됨
 - 서비스: `smarthome-vision.service`가 enabled/active
-- WebRTC: MediaMTX가 enabled/active, 카메라별 FFmpeg는 시청 중에만 on-demand 실행
+- Hailo: AI HAT+ Hailo-8 장착, 공식 pose/metadata-only 기준선 검증 완료
+- WebRTC: MediaMTX가 enabled/active; Dahua는 원본 H.264, Cam3/Webcam만 on-demand FFmpeg
 - 전시 출력: HDMI-A-2 연결 시 Pi5 로컬 3카메라 화면을 즉시 전체화면으로 실행; HDMI-A-1은 연결 시 OS 데스크톱
 - 개발 MJPEG: 640×360, 15 FPS, JPEG 품질 70; 전시 WebRTC: H.264 640×360, 15 FPS, 카메라당 1,000 kbit/s
 - 현재 카메라: Camera Module 3, ABKO 웹캠, Dahua RTSP 모두 온라인
@@ -76,14 +88,16 @@ Pi5의 `eth0`는 현재 내려가 있고 Dahua는 Pi5에 직결하지 않는다.
 ## 개발 화면과 최종 화면의 구분
 
 Pi5의 `:8080`은 카메라 입력, 탐지 박스, FPS, 낙상 규칙, 얼굴 등록을 확인하는
-개발용 대시보드다. 최종 전시 서비스가 아니다. 브라우저 절전·탭 복귀 후 검은
+개발/전시 진단 대시보드다. 이 화면에 접속한 동안에만 overlay JPEG를 생성하며,
+화면을 닫으면 렌더링 분기는 중지된다. 브라우저 절전·탭 복귀 후 검은
 화면을 줄이기 위해 visibility, focus, pageshow, online 이벤트와 60초 watchdog으로
 MJPEG 연결을 새로 만든다. 상태·이벤트 조회 주기는 3초다.
 
-Pi4의 `:8081`은 전체 안전 상태, 최근 사건, 경보 확인·취소를 제공하는 사용자용
+Pi4의 `:8081`은 전체 안전 상태, 최근 사건, 경보 확인·취소를 제공하는 통합 관제
 화면이다. 영상 iframe은 Pi4를 거치지 않고 Pi5 `:8889`의 MediaMTX와 WebRTC로
-직접 연결한다. 기본 영상은 H.264 640×360, 15 FPS, 1,000 kbit/s이며 절전·탭 복귀
-뒤 iframe을 새로 연결한다.
+직접 연결하며 overlay를 표시하지 않는다. Cam3/Webcam은 H.264 640×360/15 FPS,
+Dahua는 `dahuaclean`의 1920×1080 원본 H.264를 사용한다. 절전·탭 복귀 뒤 iframe을
+새로 연결한다.
 
 ## 완료된 것
 
@@ -96,7 +110,9 @@ Pi4의 `:8081`은 전체 안전 상태, 최근 사건, 경보 확인·취소를 
 - 코드 없는 현장 얼굴 등록, 관리 키로 보호한 목록·삭제, 이름 비공개 상태 출력
 - 정면·좌측·우측 다각도 얼굴 템플릿
 - Pi4 MQTT/PostgreSQL/수집/자동화/최종 화면 Compose 구성과 설치 도구
-- Pi5 MediaMTX/WebRTC와 3개 H.264 publisher 설치·자동 시작
+- Pi5 MediaMTX/WebRTC, Dahua 원본 H.264 pass-through, Cam3/Webcam on-demand publisher
+- Pi5 overlay와 Pi4 clean 영상 분리, 미시청 시 JPEG/FFmpeg 자동 중지
+- Hailo-8 pose 하드웨어·metadata-only 성능 기준선 확보
 - Pi4 MJPEG Python 프록시 제거, 브라우저-Pi5 직접 영상 경로 구현
 - 동일 RTSP 프레임의 temporal buffer 중복 삽입 방지와 실효 FPS/지연 계측
 - B76 3-seed NumPy GRU shadow, 사람별 motion tracker, confirm/release/cooldown 구현
@@ -113,9 +129,9 @@ Compose 구조에 그대로 합치지 않는다.
 
 ## 남은 핵심 작업
 
-1. Pi4 로컬/VS Code에서 최신 커밋을 반영하고 Compose 상태와 DB SQL 직접 확인
+1. Hailo pose metadata를 기존 tracker/B76 GRU 입력 계약에 연결
 2. 안전한 현장 ADL 30분과 방향별 연기 낙상으로 Quiet GRU와 rule을 비교
-3. 실제 active 경보 경로를 선택하고 Pi4 경보 취소를 통합 시험
+3. GRU active → rule fallback → rule 제거 순서로 실제 경보 경로 전환
 4. Pi4와 Pi5 동시 재부팅 후 3분 이내 자동 복구 확인
 5. 스피커/부저의 실제 GPIO 또는 USB 오디오 출력을 Pi4 경보 토픽에 연결
 6. 세 WebRTC 영상과 AI를 2시간 유지하는 전시 soak test
@@ -131,3 +147,5 @@ Mac mini M4 학습, Hailo-8 추론, Pi5/Pi4 역할 재분배를 포함한 다음
 [자원 제약 기반 시스템 전면 재검토](ARCHITECTURE_REVIEW.md)를 따른다.
 2026-10-08 실측, GRU 위험, Pi4 왕복 결과와 Hailo 전 완료 기준은
 [Hailo 장착 전 비전·통합 상태](PRE_HAILO_STATUS_2026-10-08.md)에 정리했다.
+장착 후 실측과 전환 순서는
+[Hailo-8 런타임 기준선과 전환 계획](HAILO_RUNTIME_BASELINE_2026-10-15.md)을 따른다.

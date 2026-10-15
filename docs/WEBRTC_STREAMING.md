@@ -1,18 +1,18 @@
 # Pi5 AI 영상 WebRTC 전달
 
-기준일: 2026-09-17
+기준일: 2026-10-15
 
 ## 결정
 
-Pi4가 Pi5의 MJPEG 세 개를 Python/Gunicorn으로 중계하던 경로를 제거했다.
-Pi5에서 AI 오버레이까지 끝낸 영상을 H.264로 인코딩하고 MediaMTX가 WebRTC로
-전시 브라우저에 직접 보낸다.
+Pi4가 영상 바이트를 중계하지 않는 원칙은 유지한다. Pi4 통합 관제 화면은 clean
+WebRTC만 표시하고, Pi5 `:8080` 개발/전시 화면을 실제로 열었을 때만 AI 오버레이를
+생성한다. Dahua는 카메라의 H.264를 MediaMTX가 그대로 읽어 재인코딩을 제거했다.
 
 ```text
-카메라 3종 -> Pi5 캡처/AI/오버레이 -> JPEG 최신 프레임
-            -> FFmpeg libx264 -> 로컬 RTSP -> MediaMTX
-브라우저 <------------------------- WebRTC/ICE ---------------- Pi5
-    |-- HTML·상태·경보 API ------------------------------------ Pi4
+Dahua -> MediaMTX source-on-demand ---------------------------> WebRTC 브라우저
+Cam3/Webcam -> Pi5 clean JPEG on-demand -> FFmpeg H.264 ------> WebRTC 브라우저
+카메라 -> AI metadata -> Pi5 요청 중 overlay JPEG -----------> Pi5 :8080
+브라우저 <- HTML·상태·경보 API ------------------------------- Pi4 :8081
 ```
 
 이는 브라우저와 Pi5 MediaMTX 사이의 WebRTC peer 연결이다. 브라우저끼리 연결하는
@@ -25,9 +25,11 @@ Pi5에서 AI 오버레이까지 끝낸 영상을 H.264로 인코딩하고 MediaM
 - 브라우저가 PC에서 실행되면 Pi4는 영상 경로에서 완전히 빠진다.
 - 브라우저가 Pi4에 연결된 모니터에서 실행되면 Pi4 브라우저는 H.264 수신과
   디코딩을 계속 담당하지만 Python 중계 부하는 사라진다.
-- Pi5는 하드웨어 H.264 인코더가 없어서 `libx264` 소프트웨어 인코딩을 담당한다.
+- Cam3/Webcam은 Pi5의 `libx264` 소프트웨어 인코딩을 사용한다.
+- Dahua `dahuaclean`은 원본 H.264 pass-through라 Pi5 디코드·JPEG·재인코딩을 하지 않는다.
+- 시청자가 없으면 clean/overlay JPEG와 FFmpeg publisher를 실행하지 않는다.
 
-2026-09-17 세 스트림 실측:
+2026-09-17 기존 세 스트림 실측:
 
 | 항목 | 값 |
 |---|---|
@@ -73,6 +75,7 @@ sudo ./pi4/scripts/install.sh
 VISION_API_URL=http://192.168.1.20:8080
 WEBRTC_BASE_URL=http://192.168.1.20:8889
 WEBRTC_CAMERAS=cam3,webcam,dahua
+WEBRTC_PATHS=cam3=cam3,webcam=webcam,dahua=dahuaclean
 ```
 
 과거 `VISION_BASE_URL`, `VISION_CAMERAS`, `VISION_STREAM_FPS`가 남아 있어도
@@ -117,7 +120,7 @@ sudo systemctl restart smarthome-mediamtx.service
 ```bash
 systemctl is-active smarthome-mediamtx.service
 
-for camera_id in cam3 webcam dahua; do
+for camera_id in cam3 webcam dahuaclean; do
   ffprobe -v error -rtsp_transport tcp -select_streams v:0 \
     -show_entries stream=codec_name,profile,width,height,r_frame_rate \
     -of default=noprint_wrappers=1 \
@@ -143,7 +146,8 @@ ss -lntup | grep -E ':8889|:8189|:8554'
 - 플레이어 페이지도 안 열림: TCP 8889 또는 MediaMTX 상태 확인
 - 페이지는 열리나 영상 없음: publisher와 로컬 RTSP 확인
 - 일부 네트워크에서만 실패: UDP 8189 방화벽 확인, TCP 8189 대체 연결 확인
-- Pi5가 느려짐: 640×360/8 FPS 유지, 비트레이트를 먼저 낮추고 CPU 온도 확인
+- Pi5가 느려짐: 시청하지 않는 Pi5 `:8080` 탭을 닫고 FFmpeg 잔류 여부와 CPU 온도 확인
+- Dahua가 5초 이상 늦음: Pi4 iframe이 `/dahuaclean`인지 확인; `/dahua`는 구형 재인코딩 경로
 - 검은 화면이 탭 복귀 후 지속: Pi4 화면 새로고침 후 브라우저 콘솔과 MediaMTX
   WebRTC 세션 로그 확인
 

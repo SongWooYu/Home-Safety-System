@@ -25,6 +25,16 @@ WEBRTC_CAMERAS = tuple(
     ).split(",")
     if camera.strip()
 )
+WEBRTC_PATHS = {
+    camera_id: path
+    for camera_id, separator, path in (
+        item.strip().partition("=")
+        for item in os.getenv(
+            "WEBRTC_PATHS", "cam3=cam3,webcam=webcam,dahua=dahuaclean"
+        ).split(",")
+    )
+    if separator and camera_id and path
+}
 ALARM_COMMAND_TOPIC = "home/safety/fall/command"
 AUDIO_CONFIG_TOPIC = "home/safety/fall/audio/config"
 
@@ -58,6 +68,7 @@ def index():
         "index.html",
         vision_cameras=WEBRTC_CAMERAS,
         webrtc_base_url=WEBRTC_BASE_URL,
+        webrtc_paths=WEBRTC_PATHS,
     )
 
 
@@ -66,7 +77,9 @@ def vision_health():
     try:
         upstream = requests.get(f"{VISION_API_URL}/health", timeout=3)
         upstream.raise_for_status()
-        media = requests.get(f"{WEBRTC_BASE_URL}/{WEBRTC_CAMERAS[0]}", timeout=3)
+        health_camera = "dahua" if "dahua" in WEBRTC_CAMERAS else WEBRTC_CAMERAS[0]
+        health_path = WEBRTC_PATHS.get(health_camera, health_camera)
+        media = requests.get(f"{WEBRTC_BASE_URL}/{health_path}", timeout=3)
         media.raise_for_status()
         return jsonify(
             {"connected": True, "upstream": upstream.json(), "webrtc": True}

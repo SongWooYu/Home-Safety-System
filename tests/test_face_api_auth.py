@@ -17,6 +17,17 @@ class FakePipeline:
         self.face_error = None
         self.enroll_calls = []
         self.deleted = []
+        self.stream_calls = []
+
+    def add_stream_client(self, camera_id, overlay):
+        self.stream_calls.append(("add", camera_id, overlay))
+
+    def remove_stream_client(self, camera_id, overlay):
+        self.stream_calls.append(("remove", camera_id, overlay))
+
+    def camera_jpeg(self, camera_id, overlay=True):
+        self.stream_calls.append(("jpeg", camera_id, overlay))
+        return b"jpeg-data"
 
     def enroll_face(self, camera_id, name, view):
         self.enroll_calls.append((camera_id, name, view))
@@ -40,6 +51,32 @@ class FaceApiAuthorizationTest(unittest.TestCase):
     def setUp(self):
         self.pipeline = FakePipeline()
         self.client = create_app(self.pipeline).test_client()
+
+    def test_clean_stream_registers_and_releases_a_clean_client(self):
+        response = self.client.get(
+            "/stream/cam3?overlay=false&fps=30",
+            buffered=False,
+        )
+        first_chunk = next(response.response)
+        response.close()
+
+        self.assertIn(b"jpeg-data", first_chunk)
+        self.assertEqual(
+            self.pipeline.stream_calls,
+            [
+                ("add", "cam3", False),
+                ("jpeg", "cam3", False),
+                ("remove", "cam3", False),
+            ],
+        )
+
+    def test_overlay_stream_is_the_default(self):
+        response = self.client.get("/stream/cam3?fps=30", buffered=False)
+        next(response.response)
+        response.close()
+
+        self.assertEqual(self.pipeline.stream_calls[0], ("add", "cam3", True))
+        self.assertEqual(self.pipeline.stream_calls[-1], ("remove", "cam3", True))
 
     def test_enrollment_does_not_require_admin_token(self):
         response = self.client.post(

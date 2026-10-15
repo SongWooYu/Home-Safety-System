@@ -312,6 +312,9 @@ class CameraWorker:
         self._latest_frame_seq = 0
         self._latest_frame_captured_at: float | None = None
         self._jpeg: bytes | None = None
+        self._clean_jpeg: bytes | None = None
+        self._overlay_stream_clients = 0
+        self._clean_stream_clients = 0
         self._detections: list[dict] = []
         self._poses: list[dict] = []
         self._online = False
@@ -397,6 +400,9 @@ class CameraWorker:
                 self._latest_frame = frame
                 self._latest_frame_seq += 1
                 self._latest_frame_captured_at = now
+                self._last_frame_at = now
+                self._online = True
+                self._error = None
 
             # 얼굴 등록용 frame은 낮은 주기로만 copy.
             if (
@@ -437,51 +443,49 @@ class CameraWorker:
             # AI inference와 완전히 독립되어 있으므로
             # Pose/Face가 느려져도 stream FPS를 막지 않는다.
             if now >= next_stream_frame:
+                with self._lock:
+                    overlay_requested = self._overlay_stream_clients > 0
+                    clean_requested = self._clean_stream_clients > 0
 
-                annotated = frame.copy()
-
-                self._draw_overlay(
-                    annotated
-                )
-
-                if (
-                    annotated.shape[1]
-                    != self.stream_width
-                    or annotated.shape[0]
-                    != self.stream_height
-                ):
-
-                    annotated = cv2.resize(
-                        annotated,
-                        (
-                            self.stream_width,
-                            self.stream_height,
-                        ),
-                        interpolation=cv2.INTER_AREA,
-                    )
-
-                ok, encoded = cv2.imencode(
-                    ".jpg",
-                    annotated,
-                    [
-                        int(
-                            cv2.IMWRITE_JPEG_QUALITY
-                        ),
-                        self.jpeg_quality,
-                    ],
-                )
-
-                if ok:
-
-                    with self._lock:
-
-                        self._jpeg = (
-                            encoded.tobytes()
+                if overlay_requested or clean_requested:
+                    stream_frame = frame
+                    if (
+                        stream_frame.shape[1] != self.stream_width
+                        or stream_frame.shape[0] != self.stream_height
+                    ):
+                        stream_frame = cv2.resize(
+                            stream_frame,
+                            (self.stream_width, self.stream_height),
+                            interpolation=cv2.INTER_AREA,
                         )
 
-                        self._online = True
-                        self._error = None
-                        self._last_frame_at = now
+                    clean_jpeg = None
+                    if clean_requested:
+                        ok, encoded = cv2.imencode(
+                            ".jpg",
+                            stream_frame,
+                            [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality],
+                        )
+                        if ok:
+                            clean_jpeg = encoded.tobytes()
+
+                    overlay_jpeg = None
+                    if overlay_requested:
+                        annotated = stream_frame.copy()
+                        self._draw_overlay(annotated)
+                        ok, encoded = cv2.imencode(
+                            ".jpg",
+                            annotated,
+                            [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality],
+                        )
+                        if ok:
+                            overlay_jpeg = encoded.tobytes()
+
+                    with self._lock:
+                        if clean_jpeg is not None:
+                            self._clean_jpeg = clean_jpeg
+                        if overlay_jpeg is not None:
+                            self._jpeg = overlay_jpeg
 
                 next_stream_frame = (
                     now
@@ -965,9 +969,23 @@ class CameraWorker:
                 2,
             )
 
-    def jpeg(self) -> bytes | None:
+    def add_stream_client(self, overlay: bool) -> None:
         with self._lock:
-            return self._jpeg
+            if overlay:
+                self._overlay_stream_clients += 1
+            else:
+                self._clean_stream_clients += 1
+
+    def remove_stream_client(self, overlay: bool) -> None:
+        with self._lock:
+            if overlay:
+                self._overlay_stream_clients = max(0, self._overlay_stream_clients - 1)
+            else:
+                self._clean_stream_clients = max(0, self._clean_stream_clients - 1)
+
+    def jpeg(self, overlay: bool = True) -> bytes | None:
+        with self._lock:
+            return self._jpeg if overlay else self._clean_jpeg
 
     def registration_frame(self) -> np.ndarray | None:
         with self._lock:
@@ -1442,9 +1460,15 @@ class VisionPipeline:
 
     def delete_face(self, person_id: str) -> bool:
         return self.face_registry is not None and self.face_registry.delete(person_id)
-    def camera_jpeg(self, camera_id: str) -> bytes:
+    def add_stream_client(self, camera_id: str, overlay: bool) -> None:
+        self.workers[camera_id].add_stream_client(overlay)
+
+    def remove_stream_client(self, camera_id: str, overlay: bool) -> None:
+        self.workers[camera_id].remove_stream_client(overlay)
+
+    def camera_jpeg(self, camera_id: str, overlay: bool = True) -> bytes:
         worker = self.workers[camera_id]
-        jpeg = worker.jpeg()
+        jpeg = worker.jpeg(overlay=overlay)
         if jpeg is not None:
             return jpeg
 

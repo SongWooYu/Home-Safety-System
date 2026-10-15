@@ -72,6 +72,7 @@ fi
 ensure_env VISION_API_URL "http://192.168.1.20:8080"
 ensure_env WEBRTC_BASE_URL "http://192.168.1.20:8889"
 ensure_env WEBRTC_CAMERAS "cam3,webcam,dahua"
+ensure_env WEBRTC_PATHS "cam3=cam3,webcam=webcam,dahua=dahuaclean"
 
 # 운영 사용자에게만 compose/status 실행에 필요한 읽기 권한을 준다.
 chown root:"$OPERATOR_GROUP" "$ENV_FILE"

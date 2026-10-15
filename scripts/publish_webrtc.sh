@@ -17,7 +17,7 @@ gop=$((fps * 2))
 bufsize_kbps=$((bitrate_kbps / 2))
 
 exec ffmpeg -nostdin -hide_banner -loglevel warning \
-  -r "$fps" -i "${vision_url}/stream/${camera_id}?fps=${fps}" \
+  -r "$fps" -i "${vision_url}/stream/${camera_id}?fps=${fps}&overlay=false" \
   -an \
   -vf "scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=fast_bilinear,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black" \
   -c:v libx264 -preset ultrafast -tune zerolatency -threads 1 \

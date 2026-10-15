@@ -54,6 +54,12 @@ def create_app(pipeline: VisionPipeline) -> Flask:
     def stream(camera_id: str):
         if camera_id not in pipeline.workers:
             abort(404)
+        overlay = request.args.get("overlay", "true").strip().lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
         default_stream_fps = float(
             pipeline.config.get("server", {}).get("stream_fps", 15)
         )
@@ -66,14 +72,18 @@ def create_app(pipeline: VisionPipeline) -> Flask:
             stream_fps = default_stream_fps
 
         def frames():
-            while True:
-                jpeg = pipeline.camera_jpeg(camera_id)
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n"
-                    b"Cache-Control: no-store\r\n\r\n" + jpeg + b"\r\n"
-                )
-                time.sleep(1.0 / stream_fps)
+            pipeline.add_stream_client(camera_id, overlay)
+            try:
+                while True:
+                    jpeg = pipeline.camera_jpeg(camera_id, overlay=overlay)
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n"
+                        b"Cache-Control: no-store\r\n\r\n" + jpeg + b"\r\n"
+                    )
+                    time.sleep(1.0 / stream_fps)
+            finally:
+                pipeline.remove_stream_client(camera_id, overlay)
 
         response = Response(frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"

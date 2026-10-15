@@ -48,8 +48,8 @@
           <iframe
             class="vision-stream"
             data-camera-id="{{ camera_id }}"
-            src="{{ webrtc_base_url }}/{{ camera_id }}?controls=false&muted=true&autoplay=true&playsInline=true"
-            title="{{ camera_id }} AI 분석 영상"
+            src="{{ webrtc_base_url }}/{{ webrtc_paths.get(camera_id, camera_id) }}?controls=false&muted=true&autoplay=true&playsInline=true"
+            title="{{ camera_id }} 실시간 영상"
             allow="autoplay; fullscreen; picture-in-picture"
           ></iframe>
           <div id="video-meta-{{ camera_id }}" class="stream-meta muted">영상 연결 중…</div>
