@@ -9,10 +9,21 @@ diff --git a/tracker_hailo.cpp b/tracker_hailo.cpp
 +  // every temporal prediction far outside its training distribution.
 +  constexpr float kInferenceHeight = 640.0f;
 +  o.hip_y=hy/kInferenceHeight; o.torso_angle_deg=std::atan2(std::abs(sx-hx),std::abs(sy-hy))*180.f/3.14159265f;
+diff --git a/fall_detector.h b/fall_detector.h
+--- a/fall_detector.h
++++ b/fall_detector.h
+@@ -119,0 +120 @@
++    double horizontal_since_sec_ = -1.0;
 diff --git a/fall_detector.cpp b/fall_detector.cpp
 --- a/fall_detector.cpp
 +++ b/fall_detector.cpp
-@@ -165,8 +164,0 @@
+@@ -51,0 +52 @@
++    horizontal_since_sec_ = -1.0;
+@@ -119,0 +121 @@
++        horizontal_since_sec_ = -1.0;
+@@ -125,0 +128 @@
++                horizontal_since_sec_ = -1.0;
+@@ -165,8 +167,0 @@
 -                    if (!cooldown && o.temporal_available && o.temporal_positive) {
 -                        state_ = FallState::Fallen;
 -                        recovery_since_sec_ = -1.0;
@@ -21,9 +32,9 @@ diff --git a/fall_detector.cpp b/fall_detector.cpp
 -                        out.fall_event = true;
 -                        break;
 -                    }
-@@ -182 +173,0 @@
+@@ -182 +176,0 @@
 -                        last_strong_evidence_sec_ = lying ? o.timestamp_sec : -1.0;
-@@ -185,0 +177,19 @@
+@@ -185,0 +180,23 @@
 +                        // At roughly 10 FPS, the downward impact and the final
 +                        // horizontal box normally peak on adjacent samples.
 +                        // Remember the strong descent for this candidate
@@ -36,6 +47,10 @@ diff --git a/fall_detector.cpp b/fall_detector.cpp
 +                        const bool impact_posture =
 +                            o.torso_angle_deg >= 65.0f &&
 +                            o.bbox_aspect_ratio >= 1.50f;
++                        horizontal_since_sec_ =
++                            o.torso_angle_deg >= 75.0f &&
++                            o.bbox_aspect_ratio >= 0.90f
++                            ? o.timestamp_sec : -1.0;
 +                        if (strong_motion && impact_posture) {
 +                            state_ = FallState::Fallen;
 +                            recovery_since_sec_ = -1.0;
@@ -43,12 +58,22 @@ diff --git a/fall_detector.cpp b/fall_detector.cpp
 +                            ++event_id_;
 +                            out.fall_event = true;
 +                        }
-@@ -189,2 +199,13 @@
+@@ -189,2 +206,27 @@
 -                case FallState::Suspected:
 -                    if (!cooldown && o.temporal_available && o.temporal_positive) {
 +                case FallState::Suspected: {
 +                    if (hip_speed >= 0.50f && max_drop_distance_ >= 0.04f) {
 +                        last_strong_evidence_sec_ = o.timestamp_sec;
++                    }
++                    const bool foreshortened_posture =
++                        o.torso_angle_deg >= 75.0f &&
++                        o.bbox_aspect_ratio >= 0.90f;
++                    if (foreshortened_posture) {
++                        if (horizontal_since_sec_ < 0.0) {
++                            horizontal_since_sec_ = o.timestamp_sec;
++                        }
++                    } else {
++                        horizontal_since_sec_ = -1.0;
 +                    }
 +                    const bool impact_posture =
 +                        o.torso_angle_deg >= 65.0f &&
@@ -58,8 +83,12 @@ diff --git a/fall_detector.cpp b/fall_detector.cpp
 +                        o.timestamp_sec - last_strong_evidence_sec_ <=
 +                            config_.suspected_timeout_sec &&
 +                        impact_posture;
-+                    if (!cooldown && windowed_impact) {
-@@ -196,6 +217,4 @@
++                    const bool persistent_foreshortened_posture =
++                        horizontal_since_sec_ >= 0.0 &&
++                        o.timestamp_sec - horizontal_since_sec_ >= 0.80;
++                    if (!cooldown &&
++                        (windowed_impact || persistent_foreshortened_posture)) {
+@@ -196,6 +238,4 @@
 -                        break;
 -                    }
 -                    if (lying && enough_evidence) {
@@ -70,5 +99,11 @@ diff --git a/fall_detector.cpp b/fall_detector.cpp
 +                        (!config_.temporal_confirmation_required ||
 +                         (o.temporal_available && o.temporal_positive)) &&
 +                        motion_triggered_ && lying && enough_evidence &&
-@@ -218,0 +238 @@
+@@ -213,0 +254 @@
++                        horizontal_since_sec_ = -1.0;
+@@ -218,0 +260 @@
 +                }
+@@ -226,0 +269 @@
++                            horizontal_since_sec_ = -1.0;
+@@ -245,0 +289 @@
++                        horizontal_since_sec_ = -1.0;

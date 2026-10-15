@@ -62,7 +62,7 @@ void edgefall_shadow_destroy(void* opaque) noexcept {
 }
 
 const char* edgefall_shadow_profile() noexcept {
-    return "edgefallkit-hailo8-yolov8s-pose-v1+windowed-impact-v3";
+    return "edgefallkit-hailo8-yolov8s-pose-v1+foreshortened-persistence-v4";
 }
 
 const char* edgefall_shadow_last_error(void* opaque) noexcept {

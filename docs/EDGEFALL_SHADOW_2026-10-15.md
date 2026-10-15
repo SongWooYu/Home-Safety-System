@@ -32,7 +32,7 @@ HEF SHA-256:
 e19856699ed47cf866d23265827f960b263f287dab5e54e82c7ce37e12525a2d
 
 Temporal profile:
-edgefallkit-hailo8-yolov8s-pose-v1+windowed-impact-v3
+edgefallkit-hailo8-yolov8s-pose-v1+foreshortened-persistence-v4
 ```
 
 The HEF and generated native library are kept under the Git-ignored `runtime/`
@@ -78,7 +78,7 @@ Open `http://<pi5-ip>:8080`, keep the Dahua overlay visible, and judge only the
 outputs and may disagree.
 
 Run each action five times after the profile shown by the API/dashboard becomes
-`edgefallkit-hailo8-yolov8s-pose-v1+windowed-impact-v3`:
+`edgefallkit-hailo8-yolov8s-pose-v1+foreshortened-persistence-v4`:
 
 - ordinary walking and standing;
 - sitting on a chair;
@@ -123,6 +123,23 @@ the strict two-part evidence but joins those parts over the already bounded
 1.5-second candidate window. Slow lie-down, static lying and fast bending
 without a horizontal person box remain negative regression cases. The v3 path
 is still Shadow-only and cannot publish MQTT or operate the Pi4 alarm.
+
+### Direction bias finding and foreshortened-persistence-v4
+
+The next live trial confirmed three EdgeFall events at 23:07:57, 23:08:24 and
+23:09:11, but forward falls were detected more consistently than side/back
+falls. Missed attempts still reached torso angles of `83°` to `88°`, while
+image-plane hip drop was only `0.00` to `0.02` and the person-box aspect ratio
+was commonly `0.93` to `1.40`. This is perspective foreshortening rather than a
+person-count or tracker failure: motion toward or away from a monocular camera
+does not necessarily move the hip downward or create a wide 2-D box.
+
+The v4 Shadow policy retains both v3 paths and adds a bounded alternative for
+an already armed rapid-motion candidate. Torso angle must remain at least
+`75°` with box aspect ratio at least `0.90` continuously for `0.80s`. A quick
+bend that returns upright before the persistence interval remains negative,
+and a slow lie-down still cannot arm the candidate. Directional ADL and staged
+falls must be retested before this path can publish MQTT.
 
 ## Why this works with HailoRT 4.23
 

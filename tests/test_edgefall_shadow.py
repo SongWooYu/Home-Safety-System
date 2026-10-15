@@ -56,11 +56,11 @@ class EdgeFallShadowTest(unittest.TestCase):
         self.assertGreaterEqual(tracks[0]["hip_y"], 0.0)
         self.assertLessEqual(tracks[0]["hip_y"], 1.0)
 
-    def test_profile_identifies_windowed_impact_policy(self):
+    def test_profile_identifies_foreshortened_persistence_policy(self):
         with EdgeFallShadow(LIBRARY) as shadow:
             self.assertEqual(
                 shadow.profile,
-                "edgefallkit-hailo8-yolov8s-pose-v1+windowed-impact-v3",
+                "edgefallkit-hailo8-yolov8s-pose-v1+foreshortened-persistence-v4",
             )
 
     def test_static_lying_posture_cannot_originate_fall(self):
@@ -194,6 +194,84 @@ class EdgeFallShadowTest(unittest.TestCase):
 
         self.assertEqual(states[-2:], ["suspected", "fallen"])
         self.assertTrue(events[-1])
+
+    def test_foreshortened_fall_confirms_after_horizontal_persistence(self):
+        states: list[str] = []
+        events: list[bool] = []
+        with EdgeFallShadow(LIBRARY) as shadow:
+            for frame in range(20):
+                tracks = shadow.update(
+                    [self._pose(hip_y=330.0, horizontal=False)],
+                    640,
+                    640,
+                    frame / 15.0,
+                )
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+
+            # A side/back fall toward the camera can rotate the torso quickly
+            # without producing a wide 2-D box or a large image-Y hip drop.
+            for frame in range(20, 36):
+                tracks = shadow.update(
+                    [
+                        self._pose(
+                            hip_y=350.0,
+                            horizontal=True,
+                            box=[100.0, 200.0, 540.0, 600.0],
+                        )
+                    ],
+                    640,
+                    640,
+                    frame / 15.0,
+                )
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+
+        self.assertEqual(states[-1], "fallen")
+        self.assertTrue(any(events))
+
+    def test_quick_foreshortened_bend_recovers_before_confirmation(self):
+        states: list[str] = []
+        events: list[bool] = []
+        with EdgeFallShadow(LIBRARY) as shadow:
+            for frame in range(20):
+                tracks = shadow.update(
+                    [self._pose(hip_y=330.0, horizontal=False)],
+                    640,
+                    640,
+                    frame / 15.0,
+                )
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+
+            for frame in range(20, 26):
+                tracks = shadow.update(
+                    [
+                        self._pose(
+                            hip_y=350.0,
+                            horizontal=True,
+                            box=[100.0, 200.0, 540.0, 600.0],
+                        )
+                    ],
+                    640,
+                    640,
+                    frame / 15.0,
+                )
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+
+            for frame in range(26, 46):
+                tracks = shadow.update(
+                    [self._pose(hip_y=330.0, horizontal=False)],
+                    640,
+                    640,
+                    frame / 15.0,
+                )
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+
+        self.assertNotIn("fallen", states)
+        self.assertFalse(any(events))
 
     def test_slow_deliberate_lie_down_stays_normal(self):
         states: list[str] = []
