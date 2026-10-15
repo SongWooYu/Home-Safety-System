@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import queue
 import signal
 import struct
 import subprocess
@@ -40,6 +41,17 @@ def parse_audio_volume(raw: str) -> int | None:
     if isinstance(volume, bool) or not isinstance(volume, int):
         return None
     return volume if 0 <= volume <= 100 else None
+
+
+def parse_audio_command(raw: str) -> str | None:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    action = payload.get("action")
+    return action if action == "test_tts" else None
 
 
 def split_topic_payload(line: str) -> tuple[str, str] | None:
@@ -127,6 +139,7 @@ class AlarmPlayer:
         self._active = threading.Event()
         self._stop = threading.Event()
         self._lock = threading.Lock()
+        self._one_shots: queue.Queue[Path] = queue.Queue()
         self._process: subprocess.Popen | None = None
         self._volume = -1
         self.set_volume(volume)
@@ -143,6 +156,13 @@ class AlarmPlayer:
             LOG.info("fall alarm audio stopped")
             self._active.clear()
             self._terminate_playback()
+
+    def play_once(self, wav_path: Path) -> None:
+        if not wav_path.is_file():
+            LOG.error("one-shot audio file does not exist: %s", wav_path)
+            return
+        self._one_shots.put(wav_path)
+        LOG.info("queued one-shot TTS playback")
 
     def set_volume(self, volume: int) -> bool:
         volume = min(100, max(0, int(volume)))
@@ -210,6 +230,13 @@ class AlarmPlayer:
 
     def _run(self) -> None:
         while not self._stop.is_set():
+            try:
+                one_shot = self._one_shots.get_nowait()
+            except queue.Empty:
+                one_shot = None
+            if one_shot is not None:
+                self._play(one_shot)
+                continue
             if not self._active.wait(0.2):
                 continue
             for wav_path in self.playlist:
@@ -231,6 +258,8 @@ def subscriber_command() -> list[str]:
         os.getenv("ALARM_TOPIC", "home/safety/fall/alarm"),
         "-t",
         os.getenv("AUDIO_CONFIG_TOPIC", "home/safety/fall/audio/config"),
+        "-t",
+        os.getenv("AUDIO_COMMAND_TOPIC", "home/safety/fall/audio/command"),
         "-q",
         "1",
         "-v",
@@ -246,10 +275,11 @@ def main() -> int:
     speech_path = runtime_dir / "fall-detected-ko.wav"
     generate_alarm_wav(tone_path)
     playlist = [tone_path]
-    if generate_tts_wav(
+    tts_available = generate_tts_wav(
         speech_path,
         os.getenv("ALARM_TTS_TEXT", "낙상이 감지되었습니다."),
-    ):
+    )
+    if tts_available:
         playlist.append(speech_path)
 
     player = AlarmPlayer(
@@ -266,6 +296,10 @@ def main() -> int:
         "AUDIO_CONFIG_TOPIC",
         "home/safety/fall/audio/config",
     )
+    command_topic = os.getenv(
+        "AUDIO_COMMAND_TOPIC",
+        "home/safety/fall/audio/command",
+    )
 
     def stop_service(signum, frame):
         del signum, frame
@@ -277,7 +311,7 @@ def main() -> int:
     try:
         while not stopping.is_set():
             command = subscriber_command()
-            LOG.info("subscribing to MQTT fall alarm and audio config")
+            LOG.info("subscribing to MQTT fall alarm, audio config and commands")
             try:
                 subscriber = subprocess.Popen(
                     command,
@@ -313,6 +347,15 @@ def main() -> int:
                         LOG.warning("ignored invalid audio config payload")
                         continue
                     player.set_volume(volume)
+                elif topic == command_topic:
+                    action = parse_audio_command(raw)
+                    if action is None:
+                        LOG.warning("ignored invalid audio command payload")
+                        continue
+                    if tts_available:
+                        player.play_once(speech_path)
+                    else:
+                        LOG.error("cannot play one-shot TTS because generation failed")
 
             subscriber.terminate()
             try:

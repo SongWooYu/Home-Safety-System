@@ -48,6 +48,7 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
         self.assertNotIn(b"/webcam?", response.data)
         self.assertNotIn(b"/vision/stream/", response.data)
         self.assertIn("시험 낙상 경보 발생".encode(), response.data)
+        self.assertIn("TTS 음성 1회 시험".encode(), response.data)
         self.assertIn("낙상 경보 해제".encode(), response.data)
         self.assertIn(b"alarm-volume", response.data)
 
@@ -75,9 +76,13 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
             ],
         )
 
-    def test_alarm_test_cancel_and_volume_require_admin_key(self):
+    def test_alarm_tts_cancel_and_volume_require_admin_key(self):
         with patch.dict(os.environ, {"ADMIN_TOKEN": "alarm-secret"}):
             self.assertEqual(self.client.post("/api/alarm/test").status_code, 401)
+            self.assertEqual(
+                self.client.post("/api/alarm/tts-test").status_code,
+                401,
+            )
             self.assertEqual(self.client.post("/api/alarm/cancel").status_code, 401)
             self.assertEqual(
                 self.client.post("/api/alarm/volume", json={"volume": 70}).status_code,
@@ -87,6 +92,10 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
             headers = {"X-Admin-Token": "alarm-secret"}
             with patch.object(pi4_web, "single") as publish:
                 test_response = self.client.post("/api/alarm/test", headers=headers)
+                tts_response = self.client.post(
+                    "/api/alarm/tts-test",
+                    headers=headers,
+                )
                 cancel_response = self.client.post("/api/alarm/cancel", headers=headers)
                 volume_response = self.client.post(
                     "/api/alarm/volume",
@@ -95,9 +104,14 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
                 )
 
         self.assertEqual(test_response.status_code, 200)
+        self.assertEqual(tts_response.status_code, 200)
         self.assertEqual(cancel_response.status_code, 200)
         self.assertEqual(volume_response.get_json()["volume"], 65)
-        self.assertEqual(publish.call_count, 3)
+        self.assertEqual(publish.call_count, 4)
+        self.assertEqual(
+            publish.call_args_list[1].args[0],
+            "home/safety/fall/audio/command",
+        )
         self.assertTrue(publish.call_args_list[-1].kwargs["retain"])
 
     def test_alarm_volume_rejects_out_of_range_value(self):

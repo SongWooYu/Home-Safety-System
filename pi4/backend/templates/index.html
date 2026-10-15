@@ -15,7 +15,7 @@
     .vision-card{overflow:hidden}.vision-card strong{display:block;margin-bottom:8px}.vision-stream{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#05070a;border-radius:6px}
     .stream-meta{margin-top:7px}.online{color:var(--green)}.offline{color:var(--red)}.events{display:grid;gap:8px;max-height:480px;overflow:auto}
     .event{display:grid;grid-template-columns:150px 110px 1fr;gap:10px}input,button{padding:9px 11px;border-radius:8px;border:1px solid var(--line);background:#101720;color:var(--text)}
-    button{background:#9a2938;cursor:pointer}.alarm-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.test-button{background:#9a5a16}.cancel-button{background:#9a2938}
+    button{background:#9a2938;cursor:pointer}.alarm-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.test-button{background:#9a5a16}.tts-button{background:#28639a}.cancel-button{background:#9a2938}
     .volume-control{display:flex;align-items:center;gap:8px;padding:5px 10px;border:1px solid var(--line);border-radius:8px}.volume-control input{padding:0;width:150px}.volume-control output{min-width:42px;text-align:right}
     @media(max-width:650px){.event{grid-template-columns:1fr}header{display:block}.grid,.video-grid{grid-template-columns:1fr}.alarm-controls>*{width:100%}.volume-control input{width:100%}}
   </style>
@@ -28,6 +28,7 @@
       <p id="alarm-detail" class="muted">Pi5 이벤트와 Pi4 자동화 상태를 기다립니다.</p>
       <div class="alarm-controls">
         <input id="admin-token" type="password" autocomplete="off" placeholder="관리 키">
+        <button id="test-tts" class="tts-button" type="button">TTS 음성 1회 시험</button>
         <button id="test-alarm" class="test-button" type="button">시험 낙상 경보 발생</button>
         <button id="cancel" class="cancel-button" type="button">낙상 경보 해제</button>
         <label class="volume-control">
@@ -37,7 +38,7 @@
         </label>
         <span id="action-message" class="muted"></span>
       </div>
-      <p class="muted">시험 경보는 Pi4 스피커에서 경고음과 “낙상이 감지되었습니다” 음성을 재생합니다. 확인 후 해제 버튼을 눌러 주세요.</p>
+      <p class="muted">TTS 시험은 안전 상태를 바꾸지 않고 음성만 한 번 재생합니다. 시험 경보는 경고음과 음성을 반복하므로 확인 후 해제해 주세요.</p>
     </section>
     <section class="panel">
       <h2>AI 분석 영상 <small id="vision-state">Pi5 연결 확인 중…</small></h2>
@@ -192,6 +193,14 @@
       await alarmRequest('/api/alarm/test');
       message.textContent='시험 낙상 경보를 발생시켰습니다.';
       setTimeout(refresh,300);
+    } catch(error) { message.textContent=error.message; }
+  });
+
+  document.getElementById('test-tts').addEventListener('click',async()=>{
+    const message=document.getElementById('action-message');
+    try {
+      await alarmRequest('/api/alarm/tts-test');
+      message.textContent='Pi4에 TTS 1회 재생 명령을 전송했습니다.';
     } catch(error) { message.textContent=error.message; }
   });
 

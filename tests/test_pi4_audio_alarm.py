@@ -29,6 +29,16 @@ class Pi4AudioAlarmTest(unittest.TestCase):
         self.assertIsNone(audio_alarm.parse_audio_volume('{"volume": 101}'))
         self.assertIsNone(audio_alarm.parse_audio_volume('{"volume": "70"}'))
 
+    def test_accepts_only_fixed_tts_test_command(self):
+        self.assertEqual(
+            audio_alarm.parse_audio_command('{"action": "test_tts"}'),
+            "test_tts",
+        )
+        self.assertIsNone(
+            audio_alarm.parse_audio_command('{"action": "arbitrary_text"}')
+        )
+        self.assertIsNone(audio_alarm.parse_audio_command("not-json"))
+
     def test_splits_verbose_mqtt_line(self):
         self.assertEqual(
             audio_alarm.split_topic_payload(
@@ -38,10 +48,11 @@ class Pi4AudioAlarmTest(unittest.TestCase):
         )
         self.assertIsNone(audio_alarm.split_topic_payload("invalid"))
 
-    def test_subscribes_to_alarm_and_retained_audio_config(self):
+    def test_subscribes_to_alarm_config_and_audio_commands(self):
         command = audio_alarm.subscriber_command()
         self.assertIn("home/safety/fall/alarm", command)
         self.assertIn("home/safety/fall/audio/config", command)
+        self.assertIn("home/safety/fall/audio/command", command)
         self.assertIn("-v", command)
 
 

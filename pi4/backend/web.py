@@ -37,6 +37,7 @@ WEBRTC_PATHS = {
 }
 ALARM_COMMAND_TOPIC = "home/safety/fall/command"
 AUDIO_CONFIG_TOPIC = "home/safety/fall/audio/config"
+AUDIO_COMMAND_TOPIC = "home/safety/fall/audio/command"
 
 
 def json_value(value):
@@ -52,6 +53,19 @@ def admin_authorized() -> bool:
 def publish_alarm_command(action: str) -> None:
     single(
         ALARM_COMMAND_TOPIC,
+        payload=json.dumps(
+            {"action": action, "source": "pi4-dashboard"},
+            ensure_ascii=False,
+        ),
+        qos=1,
+        hostname=os.getenv("MQTT_HOST", "mqtt"),
+        port=int(os.getenv("MQTT_PORT", "1883")),
+    )
+
+
+def publish_audio_command(action: str) -> None:
+    single(
+        AUDIO_COMMAND_TOPIC,
         payload=json.dumps(
             {"action": action, "source": "pi4-dashboard"},
             ensure_ascii=False,
@@ -157,6 +171,14 @@ def test_alarm():
         return jsonify({"error": "관리 키가 필요합니다."}), 401
     publish_alarm_command("test_alarm")
     return jsonify({"sent": True, "state": "alarm"})
+
+
+@app.post("/api/alarm/tts-test")
+def test_alarm_tts():
+    if not admin_authorized():
+        return jsonify({"error": "관리 키가 필요합니다."}), 401
+    publish_audio_command("test_tts")
+    return jsonify({"sent": True, "audio": "test_tts"})
 
 
 @app.post("/api/alarm/volume")

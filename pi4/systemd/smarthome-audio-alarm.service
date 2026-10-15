@@ -12,6 +12,7 @@ Environment=MQTT_HOST=127.0.0.1
 Environment=MQTT_PORT=1883
 Environment=ALARM_TOPIC=home/safety/fall/alarm
 Environment=AUDIO_CONFIG_TOPIC=home/safety/fall/audio/config
+Environment=AUDIO_COMMAND_TOPIC=home/safety/fall/audio/command
 Environment=ALARM_AUDIO_DEVICE=plughw:CARD=Headphones,DEV=0
 Environment=ALARM_MIXER_CARD=0
 Environment=ALARM_MIXER_CONTROL=PCM
