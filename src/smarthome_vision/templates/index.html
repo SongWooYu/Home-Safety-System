@@ -498,6 +498,72 @@ main{
   gap:14px;
 }
 
+.compare-panel{
+  grid-column:1 / -1;
+}
+
+.compare-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+}
+
+.compare-backend{
+  padding:12px;
+  border-radius:10px;
+  background:var(--panel3);
+  border:1px solid var(--line);
+}
+
+.compare-backend-title{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-bottom:10px;
+  font-weight:720;
+}
+
+.compare-swatch{
+  width:12px;
+  height:12px;
+  border-radius:3px;
+  flex:0 0 auto;
+}
+
+.compare-swatch.ncnn{
+  background:#00dc46;
+  box-shadow:0 0 0 2px rgba(70,210,255,.35);
+}
+
+.compare-swatch.hailo{
+  background:#ff00ff;
+  box-shadow:0 0 0 2px rgba(255,165,0,.35);
+}
+
+.compare-metrics{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:8px;
+}
+
+.compare-metric{
+  min-width:0;
+}
+
+.compare-metric label{
+  display:block;
+  color:var(--muted);
+  font-size:10px;
+}
+
+.compare-metric strong{
+  display:block;
+  margin-top:3px;
+  font-size:14px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
 .panel{
   background:
     var(--panel);
@@ -1050,6 +1116,14 @@ select{
       repeat(2,1fr);
   }
 
+  .compare-grid{
+    grid-template-columns:1fr;
+  }
+
+  .compare-metrics{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
   .face-form{
     grid-template-columns:
       1fr 1fr;
@@ -1341,7 +1415,7 @@ select{
         </h2>
 
         <div class="section-note">
-          Dahua · Pose + Rule + Temporal GRU
+          Dahua · 동일 프레임 NCNN/Hailo Pose 비교 + Rule + Temporal GRU
         </div>
       </div>
 
@@ -1352,6 +1426,87 @@ select{
     </div>
 
     <div class="ai-panel">
+
+      <div class="panel compare-panel">
+
+        <div class="panel-head">
+
+          <div class="panel-title">
+            Pose Backend 동일 프레임 비교
+          </div>
+
+          <span
+            class="badge shadow"
+            id="hailo-compare-badge">
+            준비 중
+          </span>
+
+        </div>
+
+        <div class="panel-body">
+
+          <div class="compare-grid">
+
+            <div class="compare-backend">
+              <div class="compare-backend-title">
+                <span class="compare-swatch ncnn"></span>
+                NCNN 운영 경로 (초록 박스 · 청록 관절)
+              </div>
+              <div class="compare-metrics">
+                <div class="compare-metric">
+                  <label>사람</label>
+                  <strong id="compare-ncnn-person">-</strong>
+                </div>
+                <div class="compare-metric">
+                  <label>실효 FPS</label>
+                  <strong id="compare-ncnn-fps">-</strong>
+                </div>
+                <div class="compare-metric">
+                  <label>평균 / p95</label>
+                  <strong id="compare-ncnn-latency">-</strong>
+                </div>
+                <div class="compare-metric">
+                  <label>보이는 관절</label>
+                  <strong id="compare-ncnn-keypoints">-</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="compare-backend">
+              <div class="compare-backend-title">
+                <span class="compare-swatch hailo"></span>
+                Hailo Shadow (자홍 박스 · 주황 관절)
+              </div>
+              <div class="compare-metrics">
+                <div class="compare-metric">
+                  <label>사람</label>
+                  <strong id="compare-hailo-person">-</strong>
+                </div>
+                <div class="compare-metric">
+                  <label>실효 FPS</label>
+                  <strong id="compare-hailo-fps">-</strong>
+                </div>
+                <div class="compare-metric">
+                  <label>평균 / p95</label>
+                  <strong id="compare-hailo-latency">-</strong>
+                </div>
+                <div class="compare-metric">
+                  <label>보이는 관절</label>
+                  <strong id="compare-hailo-keypoints">-</strong>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="notice shadow-notice" id="hailo-compare-note">
+            대시보드 영상을 보는 동안 Hailo Shadow를 실행합니다.
+            비교 결과는 Rule·GRU 입력이나 MQTT 경보에 사용하지 않습니다.
+          </div>
+
+        </div>
+
+      </div>
 
       <div class="panel">
 
@@ -2569,6 +2724,93 @@ function renderFallAI(
   ).textContent =
     `${camera.pose_duplicate_frames_prevented || 0}`
     + ` / ${camera.pose_source_frames_skipped || 0}`;
+
+
+  document.getElementById(
+    "compare-ncnn-person"
+  ).textContent =
+    `${camera.person_count || 0}명`;
+
+  document.getElementById(
+    "compare-ncnn-fps"
+  ).textContent =
+    `${Number(camera.pose_effective_fps || 0).toFixed(1)}`;
+
+  document.getElementById(
+    "compare-ncnn-latency"
+  ).textContent =
+    `${Number(camera.pose_inference_ms || 0).toFixed(1)}`
+    + ` / ${Number(camera.pose_inference_p95_ms || 0).toFixed(1)} ms`;
+
+  document.getElementById(
+    "compare-ncnn-keypoints"
+  ).textContent =
+    percent(camera.pose_visible_keypoint_ratio || 0);
+
+  document.getElementById(
+    "compare-hailo-person"
+  ).textContent =
+    `${camera.hailo_shadow_person_count || 0}명`;
+
+  document.getElementById(
+    "compare-hailo-fps"
+  ).textContent =
+    `${Number(camera.hailo_shadow_effective_fps || 0).toFixed(1)}`;
+
+  document.getElementById(
+    "compare-hailo-latency"
+  ).textContent =
+    `${Number(camera.hailo_shadow_inference_ms || 0).toFixed(1)}`
+    + ` / ${Number(camera.hailo_shadow_inference_p95_ms || 0).toFixed(1)} ms`;
+
+  document.getElementById(
+    "compare-hailo-keypoints"
+  ).textContent =
+    percent(camera.hailo_shadow_visible_keypoint_ratio || 0);
+
+  const hailoCompareBadge =
+    document.getElementById(
+      "hailo-compare-badge"
+    );
+
+  const hailoCompareNote =
+    document.getElementById(
+      "hailo-compare-note"
+    );
+
+  const hailoState =
+    String(
+      camera.hailo_shadow_state
+      || "disabled"
+    );
+
+  if(hailoState === "running"){
+    hailoCompareBadge.className = "badge online";
+    hailoCompareBadge.textContent = camera.hailo_shadow_same_frame
+      ? "동일 프레임 · 실행 중"
+      : "실행 중 · 동기화 대기";
+  }else if(hailoState === "error"){
+    hailoCompareBadge.className = "badge danger";
+    hailoCompareBadge.textContent = "Hailo 오류";
+  }else if(hailoState === "paused"){
+    hailoCompareBadge.className = "badge";
+    hailoCompareBadge.textContent = "화면 연결 대기";
+  }else{
+    hailoCompareBadge.className = "badge shadow";
+    hailoCompareBadge.textContent = hailoState === "warming"
+      ? "Hailo 준비 중"
+      : "비활성";
+  }
+
+  if(camera.hailo_shadow_error){
+    hailoCompareNote.textContent =
+      `Hailo Shadow 오류: ${camera.hailo_shadow_error}`;
+  }else{
+    hailoCompareNote.textContent =
+      "같은 Dahua 원본 프레임을 비교합니다. "
+      + "Hailo Shadow 결과는 화면과 계측에만 사용하며 "
+      + "Rule·GRU 입력 및 MQTT 경보에는 사용하지 않습니다.";
+  }
 
 
   const ruleBadge =

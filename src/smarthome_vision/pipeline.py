@@ -32,6 +32,21 @@ POSE_SKELETON = (
 )
 
 
+def pose_visible_keypoint_ratio(
+    poses: list[dict],
+    confidence: float = 0.25,
+) -> float:
+    """Return visible COCO keypoints divided by all keypoints in detections."""
+    total = 0
+    visible = 0
+    for pose in poses:
+        for keypoint in pose.get("keypoints", []):
+            total += 1
+            if len(keypoint) >= 3 and float(keypoint[2]) >= confidence:
+                visible += 1
+    return visible / total if total else 0.0
+
+
 def draw_face_label(
     frame: np.ndarray,
     label: str,
@@ -112,10 +127,20 @@ class WorkerSnapshot:
     pose_effective_fps: float
     pose_inference_ms: float
     pose_inference_p95_ms: float
+    pose_visible_keypoint_ratio: float
     pose_input_age_ms: float
     pose_unique_frames: int
     pose_source_frames_skipped: int
     pose_duplicate_frames_prevented: int
+    hailo_shadow_enabled: bool
+    hailo_shadow_state: str
+    hailo_shadow_person_count: int
+    hailo_shadow_effective_fps: float
+    hailo_shadow_inference_ms: float
+    hailo_shadow_inference_p95_ms: float
+    hailo_shadow_visible_keypoint_ratio: float
+    hailo_shadow_same_frame: bool
+    hailo_shadow_error: str | None
     temporal_enabled: bool
     temporal_mode: str
     temporal_state: str
@@ -133,6 +158,8 @@ class CameraWorker:
         camera_config: dict[str, Any],
         source: CameraSource,
         pose_estimator: Any | None,
+        hailo_shadow_estimator: Any | None,
+        hailo_shadow_error: str | None,
         temporal_ensemble: NumpyFallEnsemble | None,
         face_registry: FaceRegistry | None,
         event_bus: EventBus,
@@ -150,6 +177,27 @@ class CameraWorker:
         self.source_type = camera_config["type"]
         self.source = source
         self.pose_estimator = pose_estimator
+        hailo_shadow_config = fall_config.get("hailo_shadow", {})
+        self.hailo_shadow_estimator = hailo_shadow_estimator
+        self.hailo_shadow_configured = bool(
+            hailo_shadow_config.get("enabled", False)
+            and camera_config.get("fall_detection", True)
+        )
+        self.hailo_shadow_enabled = bool(
+            self.hailo_shadow_configured
+            and hailo_shadow_estimator is not None
+        )
+        self.hailo_shadow_run_when_viewed = bool(
+            hailo_shadow_config.get("run_when_viewed", True)
+        )
+        self.hailo_shadow_keypoint_confidence = float(
+            hailo_shadow_config.get("keypoint_confidence", 0.25)
+        )
+        self._hailo_shadow_error = (
+            hailo_shadow_error
+            if self.hailo_shadow_configured
+            else None
+        )
         self.face_registry = face_registry
         self.event_bus = event_bus
         self.stream_width = max(1, stream_width)
@@ -338,9 +386,14 @@ class CameraWorker:
         self._pose_completed_at = deque(maxlen=120)
         self._pose_latency_ms = deque(maxlen=120)
         self._pose_input_age_ms = 0.0
+        self._pose_frame_seq = 0
         self._pose_unique_frames = 0
         self._pose_source_frames_skipped = 0
         self._pose_duplicate_frames_prevented = 0
+        self._hailo_shadow_poses: list[dict] = []
+        self._hailo_shadow_completed_at = deque(maxlen=120)
+        self._hailo_shadow_latency_ms = deque(maxlen=120)
+        self._hailo_shadow_frame_seq = 0
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -645,6 +698,7 @@ class CameraWorker:
                         self._pose_unique_frames += 1
                         self._pose_source_frames_skipped += source_frames_skipped
                         self._pose_input_age_ms = input_age_ms
+                        self._pose_frame_seq = frame_seq
                         self._pose_latency_ms.append(pose_latency_ms)
                         self._pose_completed_at.append(pose_finished)
 
@@ -812,6 +866,11 @@ class CameraWorker:
                             ),
                         )
 
+                    self._update_hailo_shadow(
+                        frame,
+                        frame_seq,
+                    )
+
                 except Exception as exc:
 
                     with self._lock:
@@ -872,6 +931,43 @@ class CameraWorker:
                     0.005
                 )
 
+    def _hailo_shadow_requested(self) -> bool:
+        if not self.hailo_shadow_enabled:
+            return False
+        if not self.hailo_shadow_run_when_viewed:
+            return True
+        with self._lock:
+            return self._overlay_stream_clients > 0
+
+    def _update_hailo_shadow(
+        self,
+        frame: np.ndarray,
+        frame_seq: int,
+    ) -> None:
+        """Run Hailo on the primary pose frame without affecting alarms."""
+        if not self._hailo_shadow_requested():
+            with self._lock:
+                self._hailo_shadow_poses = []
+            return
+
+        started = time.perf_counter()
+        try:
+            poses = self.hailo_shadow_estimator.estimate(frame)
+        except Exception as exc:
+            with self._lock:
+                self._hailo_shadow_poses = []
+                self._hailo_shadow_error = str(exc)
+            return
+
+        finished = time.monotonic()
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        with self._lock:
+            self._hailo_shadow_poses = poses
+            self._hailo_shadow_frame_seq = frame_seq
+            self._hailo_shadow_latency_ms.append(latency_ms)
+            self._hailo_shadow_completed_at.append(finished)
+            self._hailo_shadow_error = None
+
     def _handle_person_state(self) -> None:
         people = [item for item in self._detections if item["label"] == "person"]
         now = time.monotonic()
@@ -928,7 +1024,15 @@ class CameraWorker:
             right, bottom = point(x2, y2)
             return left, top, right, bottom
 
-        for pose in self._poses:
+        primary_poses = self._poses
+        hailo_shadow_poses = getattr(self, "_hailo_shadow_poses", [])
+        hailo_keypoint_confidence = getattr(
+            self,
+            "hailo_shadow_keypoint_confidence",
+            0.25,
+        )
+
+        for pose in primary_poses:
             keypoints = pose["keypoints"]
             for start, end in POSE_SKELETON:
                 if keypoints[start][2] < 0.25 or keypoints[end][2] < 0.25:
@@ -952,6 +1056,38 @@ class CameraWorker:
                 (x1, max(24, y1 - 8)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.65,
+                color,
+                2,
+            )
+
+        for pose in hailo_shadow_poses:
+            keypoints = pose["keypoints"]
+            for start, end in POSE_SKELETON:
+                if (
+                    keypoints[start][2] < hailo_keypoint_confidence
+                    or keypoints[end][2] < hailo_keypoint_confidence
+                ):
+                    continue
+                cv2.line(
+                    frame,
+                    point(keypoints[start][0], keypoints[start][1]),
+                    point(keypoints[end][0], keypoints[end][1]),
+                    (0, 165, 255),
+                    2,
+                )
+            for x, y, confidence in keypoints:
+                if confidence >= hailo_keypoint_confidence:
+                    cv2.circle(frame, point(x, y), 3, (0, 220, 255), -1)
+
+            x1, y1, x2, y2 = box(pose["box"])
+            color = (255, 0, 255)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(
+                frame,
+                f"HAILO {float(pose['confidence']):.2f}",
+                (x1, min(frame.shape[0] - 8, y2 + 24)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.58,
                 color,
                 2,
             )
@@ -985,6 +1121,26 @@ class CameraWorker:
             (245, 245, 245),
             2,
         )
+
+        if hailo_shadow_poses:
+            legend = "NCNN: GREEN/CYAN | HAILO SHADOW: MAGENTA/ORANGE"
+            legend_y = max(58, frame.shape[0] - 12)
+            cv2.rectangle(
+                frame,
+                (0, legend_y - 24),
+                (min(frame.shape[1], 600), legend_y + 4),
+                (18, 22, 30),
+                -1,
+            )
+            cv2.putText(
+                frame,
+                legend,
+                (10, legend_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.43,
+                (245, 245, 245),
+                1,
+            )
 
         if self.pose_enabled and self.fall_tracker.fall_state != "normal":
             is_confirmed = self.fall_tracker.fall_state == "confirmed"
@@ -1168,6 +1324,48 @@ class CameraWorker:
                 else 0.0
             )
 
+            hailo_shadow_times = list(self._hailo_shadow_completed_at)
+            if (
+                len(hailo_shadow_times) >= 2
+                and hailo_shadow_times[-1] > hailo_shadow_times[0]
+            ):
+                hailo_shadow_effective_fps = (
+                    (len(hailo_shadow_times) - 1)
+                    / (hailo_shadow_times[-1] - hailo_shadow_times[0])
+                )
+            else:
+                hailo_shadow_effective_fps = 0.0
+
+            hailo_shadow_latencies = list(self._hailo_shadow_latency_ms)
+            hailo_shadow_inference_ms = (
+                float(np.mean(hailo_shadow_latencies))
+                if hailo_shadow_latencies
+                else 0.0
+            )
+            hailo_shadow_inference_p95_ms = (
+                float(np.percentile(hailo_shadow_latencies, 95))
+                if hailo_shadow_latencies
+                else 0.0
+            )
+
+            hailo_shadow_requested = (
+                self.hailo_shadow_enabled
+                and (
+                    not self.hailo_shadow_run_when_viewed
+                    or self._overlay_stream_clients > 0
+                )
+            )
+            if not self.hailo_shadow_configured:
+                hailo_shadow_state = "disabled"
+            elif not self.hailo_shadow_enabled or self._hailo_shadow_error:
+                hailo_shadow_state = "error"
+            elif not hailo_shadow_requested:
+                hailo_shadow_state = "paused"
+            elif not self._hailo_shadow_frame_seq:
+                hailo_shadow_state = "warming"
+            else:
+                hailo_shadow_state = "running"
+
             return WorkerSnapshot(
                 camera_id=self.camera_id,
                 label=self.label,
@@ -1312,6 +1510,11 @@ class CameraWorker:
                     2,
                 ),
 
+                pose_visible_keypoint_ratio=round(
+                    pose_visible_keypoint_ratio(self._poses, 0.25),
+                    4,
+                ),
+
                 pose_input_age_ms=round(
                     self._pose_input_age_ms,
                     2,
@@ -1328,6 +1531,46 @@ class CameraWorker:
                 pose_duplicate_frames_prevented=(
                     self._pose_duplicate_frames_prevented
                 ),
+
+                hailo_shadow_enabled=(
+                    self.hailo_shadow_configured
+                ),
+
+                hailo_shadow_state=hailo_shadow_state,
+
+                hailo_shadow_person_count=len(
+                    self._hailo_shadow_poses
+                ),
+
+                hailo_shadow_effective_fps=round(
+                    hailo_shadow_effective_fps,
+                    2,
+                ),
+
+                hailo_shadow_inference_ms=round(
+                    hailo_shadow_inference_ms,
+                    2,
+                ),
+
+                hailo_shadow_inference_p95_ms=round(
+                    hailo_shadow_inference_p95_ms,
+                    2,
+                ),
+
+                hailo_shadow_visible_keypoint_ratio=round(
+                    pose_visible_keypoint_ratio(
+                        self._hailo_shadow_poses,
+                        self.hailo_shadow_keypoint_confidence,
+                    ),
+                    4,
+                ),
+
+                hailo_shadow_same_frame=(
+                    bool(self._hailo_shadow_frame_seq)
+                    and self._hailo_shadow_frame_seq == self._pose_frame_seq
+                ),
+
+                hailo_shadow_error=self._hailo_shadow_error,
 
                 temporal_enabled=(
                     self.temporal_fall
@@ -1381,6 +1624,8 @@ class VisionPipeline:
         self.event_bus = EventBus(config["mqtt"])
         fall_config = config.get("fall_detection", {})
         self.pose_estimator: Any | None = None
+        self.hailo_shadow_estimator: Any | None = None
+        self.hailo_shadow_error: str | None = None
         if fall_config.get("enabled", False):
             pose_backend = str(fall_config.get("backend", "ncnn")).strip().lower()
             if pose_backend == "ncnn":
@@ -1405,6 +1650,28 @@ class VisionPipeline:
                 )
             else:
                 raise ValueError(f"Unsupported pose backend: {pose_backend}")
+
+            hailo_shadow_config = fall_config.get("hailo_shadow", {})
+            if (
+                hailo_shadow_config.get("enabled", False)
+                and pose_backend != "hailo"
+            ):
+                try:
+                    from .inference.hailo_pose import HailoPoseEstimator
+
+                    self.hailo_shadow_estimator = HailoPoseEstimator(
+                        hef_path=fall_config["hailo_model"],
+                        postprocess_path=fall_config["hailo_postprocess"],
+                        whole_buffer_path=fall_config["hailo_whole_buffer"],
+                        confidence=float(
+                            hailo_shadow_config.get("confidence", 0.0)
+                        ),
+                        timeout_seconds=float(
+                            fall_config.get("hailo_timeout_seconds", 3.0)
+                        ),
+                    )
+                except Exception as exc:
+                    self.hailo_shadow_error = str(exc)
 
         self.temporal_ensemble: (
             NumpyFallEnsemble | None
@@ -1463,6 +1730,8 @@ class VisionPipeline:
                 camera,
                 source,
                 self.pose_estimator,
+                self.hailo_shadow_estimator,
+                self.hailo_shadow_error,
                 self.temporal_ensemble,
                 self.face_registry,
                 self.event_bus,
@@ -1505,6 +1774,9 @@ class VisionPipeline:
         close_pose = getattr(self.pose_estimator, "close", None)
         if callable(close_pose):
             close_pose()
+        close_hailo_shadow = getattr(self.hailo_shadow_estimator, "close", None)
+        if callable(close_hailo_shadow):
+            close_hailo_shadow()
 
     def status(self) -> dict[str, Any]:
         return {
@@ -1512,6 +1784,8 @@ class VisionPipeline:
             "mqtt_connected": self.event_bus.connected,
             "temporal_fall_enabled": self.temporal_ensemble is not None,
             "temporal_fall_error": self.temporal_error,
+            "hailo_shadow_enabled": self.hailo_shadow_estimator is not None,
+            "hailo_shadow_error": self.hailo_shadow_error,
             "face_recognition_enabled": self.face_registry is not None,
             "face_recognition_error": self.face_error,
             "registered_people": len(self.registered_faces()),

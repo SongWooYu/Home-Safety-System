@@ -7,7 +7,9 @@
 AI HAT+의 Hailo-8은 정상 인식되고 pose HEF도 하드웨어에서 약 31 FPS로 실행된다.
 Hailo callback에서 사람 bbox와 17개 keypoint를 꺼내 기존 estimator 계약으로
 변환하는 어댑터와 설정 backend 선택 지점까지 구현했다. 현재 운영 설정은 출력
-domain 검증을 위해 계속 `backend: ncnn`이며 Hailo를 아직 MQTT 경보에 사용하지 않는다.
+domain 검증을 위해 계속 `backend: ncnn`이다. 대신 Pi5 `:8080`을 보고 있을 때만
+같은 Dahua 프레임을 Hailo에도 넣는 Shadow 비교를 실행하며, Hailo 결과는 MQTT
+경보와 Rule/GRU 입력에 사용하지 않는다.
 
 영상 전달과 AI는 분리한다. Pi4 통합 관제 화면에는 clean WebRTC를 보내고, Pi5 개발
 화면을 실제로 열었을 때만 bbox·관절·진단 오버레이를 만든다. Hailo는 pose 추론을
@@ -71,6 +73,30 @@ confidence 평균은 0.1480, 중앙값은 0.0935였다. 기존 B76 runtime의 �
 Hailo confidence 보정 또는 Hailo 출력으로 재추출한 데이터 기반 GRU 재학습 여부를
 결정한다. 기존 rule active와 NCNN runtime은 이 검증 동안 유지한다.
 
+### Pi5 대시보드 동일 프레임 Shadow 비교
+
+`config/cameras.yaml`의 `fall_detection.hailo_shadow`를 활성화했다. Dahua의 NCNN
+분석이 끝난 직후 동일한 BGR 프레임을 Hailo adapter에 넣는다. 비교 분기는 Pi5
+overlay 시청자가 있을 때만 실행하며 시청 종료 후 자동으로 `paused`가 된다.
+
+2026-10-15 실제 `:8080` overlay 연결 중 계측값:
+
+| 항목 | NCNN 운영 | Hailo Shadow |
+|---|---:|---:|
+| 동일 프레임 | 기준 | `true` |
+| 실효 FPS | 9.38 | 9.44 |
+| 평균 추론 지연 | 31.61 ms | 36.64 ms |
+| p95 추론 지연 | 42.61 ms | 42.49 ms |
+| 검출 사람 수 | 2명 | 1명 |
+| confidence 0.25 이상 관절 비율 | 26.47% | 17.65% |
+| RTSP source buffer age | 154.8 ms | 같은 입력 프레임 |
+
+두 backend의 사람 수와 관절 비율 차이가 바로 현재 domain 검증 대상이다. 성능은
+10 FPS 계약에 근접하지만 Hailo 출력으로 기존 GRU를 즉시 구동해서는 안 된다.
+개발 화면에서는 NCNN을 초록 bbox/청록 관절, Hailo를 자홍 bbox/주황 관절로 그린다.
+이는 OpenCV가 영상 픽셀에 직접 그리는 server-side overlay이며 브라우저 canvas가
+아니다. Pi4 clean WebRTC에는 어느 overlay도 포함하지 않는다.
+
 재현 명령:
 
 ```bash
@@ -89,7 +115,10 @@ Pi5 개발/전시 브라우저
   카메라 -> AI metadata -> 요청 중에만 overlay JPEG -> :8080
 
 AI 경로
-  Dahua clean frame -> Hailo pose -> tracker -> B76 GRU -> MQTT metadata
+  Dahua BGR -> NCNN pose -> Rule(active) + B76 GRU(shadow) -> MQTT metadata
+
+비교 경로(Pi5 :8080 시청 중에만)
+  같은 Dahua BGR -> Hailo pose -> 화면/계측만, 경보 미전송
 ```
 
 Dahua clean 경로는 1920×1080 H.264 High Profile, 입력 표기 25 FPS/평균 15 FPS이며
@@ -102,10 +131,10 @@ Dahua clean 경로는 1920×1080 H.264 High Profile, 입력 표기 25 FPS/평균
 
 ## Hailo 적용 순서
 
-1. Dahua의 로컬 clean RTSP 경로를 Hailo pose 입력으로 사용한다.
-2. Hailo detection/landmark 결과를 기존 `estimate(frame)` 결과 계약으로 변환한다.
-3. bbox/keypoint 좌표, confidence, track ID를 단위 영상으로 NCNN과 비교한다.
-4. B76 3-seed GRU를 `shadow`로 유지한 채 ADL·연기 낙상 로그를 수집한다.
+1. 완료: Dahua의 최신 BGR 프레임을 Hailo pose 입력으로 사용한다.
+2. 완료: Hailo detection/landmark를 기존 `estimate(frame)` 계약으로 변환한다.
+3. 진행 중: 동일 프레임 bbox/keypoint, confidence, 사람 수를 NCNN과 화면 비교한다.
+4. 다음: B76 3-seed GRU를 `shadow`로 유지한 채 ADL·연기 낙상 로그를 수집한다.
 5. 실제 오탐·미탐·지연 기준을 통과하면 GRU를 `active`로 승격한다.
 6. rule은 `fallback`으로 한 전시 rehearsal 동안 유지한다.
 7. GRU active 및 경보 취소까지 안정화된 뒤 rule active 경로를 제거한다.

@@ -6,10 +6,12 @@
 
 - AI HAT+ Hailo-8 장착과 펌웨어 4.23.0 인식을 확인했다.
 - Hailo pose는 하드웨어 기준 30.80 FPS, metadata-only 파이프라인 31.75 FPS였다.
+- Pi5 `:8080` 시청 중 동일 Dahua 프레임의 NCNN/Hailo Shadow 결과를 색상과
+  사람 수·FPS·지연·관절 가시성으로 직접 비교할 수 있다.
 - Pi4 관제 영상은 clean WebRTC, Pi5 `:8080`은 요청 중에만 overlay를 생성한다.
 - Dahua는 `dahuaclean` 원본 H.264 pass-through로 재인코딩을 제거했다.
 - 시청 종료 뒤 JPEG 렌더링과 FFmpeg publisher가 자동 정리된다.
-- 현재 운영 AI는 아직 NCNN이며 Hailo pose의 tracker/GRU 연결이 다음 단계다.
+- 운영 Rule/GRU 입력은 아직 NCNN이며 Hailo는 화면·계측 전용 Shadow다.
 - rule은 지금 삭제하지 않고 GRU active 검증 뒤 fallback을 거쳐 제거한다.
 - ABKO APC720 운영 경로를 제거하고 Camera Module 3가 얼굴 등록·인식을 담당한다.
 - 오버레이 좌표는 원본 해상도에서 카메라별 표시 좌표로 명시 변환한다.
@@ -50,6 +52,7 @@ Pi5의 `eth0`는 현재 내려가 있고 Dahua는 Pi5에 직결하지 않는다.
 - 로케일: `C.UTF-8`; 이전 `en_US.UTF-8` 경고는 현재 발생 조건이 제거됨
 - 서비스: `smarthome-vision.service`가 enabled/active
 - Hailo: AI HAT+ Hailo-8 장착, 공식 pose/metadata-only 기준선 검증 완료
+- Hailo 비교: Pi5 overlay 시청 중에만 실행, 동일 프레임 약 9.44 FPS/평균 36.64 ms
 - WebRTC: MediaMTX가 enabled/active; Dahua는 원본 H.264, Cam3만 on-demand FFmpeg
 - 전시 출력: 기존 HDMI Chromium 자동 실행은 disabled/inactive; 네이티브 Wayland/OpenGL 표시 경로를 다음 단계로 구현
 - 개발 MJPEG: Cam3 640×360/15 FPS/JPEG70, Dahua 960×540/10 FPS/JPEG80;
@@ -119,6 +122,7 @@ Dahua는 `dahuaclean`의 1920×1080 원본 H.264를 사용한다. 절전·탭 �
 - Pi5 MediaMTX/WebRTC, Dahua 원본 H.264 pass-through, Cam3 on-demand publisher
 - Pi5 overlay와 Pi4 clean 영상 분리, 미시청 시 JPEG/FFmpeg 자동 중지
 - Hailo-8 pose 하드웨어·metadata-only 성능 기준선 확보
+- 동일 Dahua 프레임의 NCNN/Hailo Shadow 오버레이와 성능·coverage 비교 계측
 - Dahua 최신 프레임 우선 GStreamer 입력, 960×540 표시, RTSP buffer age 계측
 - 다인원 B76 3-seed GRU batch 처리(6명 실측 약 1.69배 개선)
 - Pi4 MJPEG Python 프록시 제거, 브라우저-Pi5 직접 영상 경로 구현
@@ -137,13 +141,14 @@ Compose 구조에 그대로 합치지 않는다.
 
 ## 남은 핵심 작업
 
-1. Hailo pose metadata를 기존 tracker/B76 GRU 입력 계약에 연결
-2. 안전한 현장 ADL 30분과 방향별 연기 낙상으로 Quiet GRU와 rule을 비교
-3. GRU active → rule fallback → rule 제거 순서로 실제 경보 경로 전환
-4. Pi4와 Pi5 동시 재부팅 후 3분 이내 자동 복구 확인
-5. 스피커/부저의 실제 GPIO 또는 USB 오디오 출력을 Pi4 경보 토픽에 연결
-6. 두 WebRTC 영상과 AI를 2시간 유지하는 전시 soak test
-7. MQTT 익명 접속을 인증 방식으로 전환하고 방화벽 범위를 전시장 LAN으로 제한
+1. Hailo Shadow에서 사람 수·관절 coverage 차이를 ADL/연기 낙상으로 정량화
+2. 결과에 따라 Hailo confidence 보정 또는 Hailo pose 기반 GRU 재학습 결정
+3. 안전한 현장 ADL 30분과 방향별 연기 낙상으로 Quiet GRU와 rule을 비교
+4. GRU active → rule fallback → rule 제거 순서로 실제 경보 경로 전환
+5. Pi4와 Pi5 동시 재부팅 후 3분 이내 자동 복구 확인
+6. 스피커/부저의 실제 GPIO 또는 USB 오디오 출력을 Pi4 경보 토픽에 연결
+7. 두 WebRTC 영상과 AI를 2시간 유지하는 전시 soak test
+8. MQTT 익명 접속을 인증 방식으로 전환하고 방화벽 범위를 전시장 LAN으로 제한
 
 낙상은 현재 의료적으로 검증된 판정이 아니라 졸업작품 시연용 위험 징후 MVP다.
 
