@@ -32,6 +32,32 @@ POSE_SKELETON = (
 )
 
 
+EDGEFALL_STATE_COLORS = {
+    "normal": (45, 165, 70),
+    "suspected": (0, 165, 255),
+    "fallen": (30, 30, 255),
+    "recovering": (180, 80, 255),
+    "warming": (95, 105, 120),
+}
+
+
+def select_edgefall_track(
+    tracks: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Select the same visible-first EdgeFall track for status and overlay."""
+    visible = [item for item in tracks if item.get("visible", False)]
+    candidates = visible or tracks
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda item: (
+            bool(item.get("fall_detected", False)),
+            float(item.get("temporal_probability", 0.0)),
+        ),
+    )
+
+
 def pose_visible_keypoint_ratio(
     poses: list[dict],
     confidence: float = 0.25,
@@ -429,6 +455,7 @@ class CameraWorker:
         self._hailo_shadow_latency_ms = deque(maxlen=120)
         self._hailo_shadow_frame_seq = 0
         self._edgefall_shadow_tracks: list[dict[str, Any]] = []
+        self._edgefall_track_states: dict[int, str] = {}
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -1030,6 +1057,7 @@ class CameraWorker:
                     finished,
                 )
                 edgefall_error = None
+                self._record_edgefall_transitions(edgefall_tracks)
             except Exception as exc:
                 edgefall_error = str(exc)
         with self._lock:
@@ -1040,6 +1068,68 @@ class CameraWorker:
             self._hailo_shadow_latency_ms.append(latency_ms)
             self._hailo_shadow_completed_at.append(finished)
             self._hailo_shadow_error = None
+
+    def _record_edgefall_transitions(
+        self,
+        tracks: list[dict[str, Any]],
+    ) -> None:
+        """Record EdgeFall transitions locally without publishing MQTT."""
+        current_states: dict[int, str] = {}
+        previous_states = self._edgefall_track_states
+
+        for track in tracks:
+            track_id = int(track["track_id"])
+            state = str(track.get("state", "normal"))
+            previous = previous_states.get(track_id)
+            current_states[track_id] = state
+
+            transition: str | None = None
+            if bool(track.get("fall_event", False)):
+                transition = "fall_edgefall_confirmed"
+            elif previous is not None and state != previous:
+                if state == "suspected":
+                    transition = "fall_edgefall_suspected"
+                elif state == "recovering":
+                    transition = "fall_edgefall_recovering"
+                elif state == "normal" and previous != "normal":
+                    transition = "fall_edgefall_cleared"
+
+            if transition is None:
+                continue
+
+            probability = float(track.get("temporal_probability", 0.0))
+            details = {
+                "shadow": True,
+                "published_to_mqtt": False,
+                "model": getattr(self.edgefall_shadow, "profile", "edgefallkit"),
+                "track_id": track_id,
+                "previous_state": previous,
+                "state": state,
+                "event_id": int(track.get("event_id", 0)),
+                "temporal_positive": bool(track.get("temporal_positive", False)),
+                "hip_drop_speed": float(track.get("hip_drop_speed", 0.0)),
+                "hip_drop_distance": float(track.get("hip_drop_distance", 0.0)),
+                "torso_angle_deg": float(track.get("torso_angle_deg", 0.0)),
+                "bbox_aspect_ratio": float(track.get("bbox_aspect_ratio", 0.0)),
+            }
+            self.event_bus.emit(
+                self.camera_id,
+                transition,
+                probability,
+                details,
+                publish=False,
+            )
+            print(
+                "EDGEFALL_SHADOW_TRANSITION "
+                f"camera={self.camera_id} track={track_id} "
+                f"previous={previous or 'new'} state={state} "
+                f"fall_event={bool(track.get('fall_event', False))} "
+                f"event_id={int(track.get('event_id', 0))} "
+                f"probability={probability:.4f} mqtt=false",
+                flush=True,
+            )
+
+        self._edgefall_track_states = current_states
 
     def _handle_person_state(self) -> None:
         people = [item for item in self._detections if item["label"] == "person"]
@@ -1172,21 +1262,41 @@ class CameraWorker:
             x1, y1, _x2, _y2 = box(track["bbox"])
             state = str(track.get("state", "normal")).upper()
             probability = float(track.get("temporal_probability", 0.0))
-            color = (
-                (40, 40, 255)
-                if track.get("fall_detected", False)
-                else (0, 165, 255)
-                if state == "SUSPECTED"
-                else (190, 120, 255)
+            color = EDGEFALL_STATE_COLORS.get(
+                state.lower(),
+                (190, 120, 255),
+            )
+            label = (
+                f"EDGEFALL #{track['track_id']} {state} "
+                f"P={probability:.0%}"
+            )
+            label_scale = 0.68
+            label_thickness = 2
+            (label_width, label_height), baseline = cv2.getTextSize(
+                label,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                label_scale,
+                label_thickness,
+            )
+            label_y = max(68, y1 - 10)
+            cv2.rectangle(
+                frame,
+                (x1, max(42, label_y - label_height - baseline - 8)),
+                (
+                    min(frame.shape[1] - 1, x1 + label_width + 12),
+                    label_y + baseline + 4,
+                ),
+                (18, 22, 30),
+                -1,
             )
             cv2.putText(
                 frame,
-                f"EDGE #{track['track_id']} {state} {probability:.2f}",
-                (x1, max(52, y1 - 10)),
+                label,
+                (x1 + 6, label_y),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.52,
+                label_scale,
                 color,
-                2,
+                label_thickness,
             )
 
         for face in self._faces:
@@ -1237,6 +1347,44 @@ class CameraWorker:
                 0.43,
                 (245, 245, 245),
                 1,
+            )
+
+        if getattr(self, "edgefall_shadow", None) is not None or edgefall_shadow_tracks:
+            best_edgefall = select_edgefall_track(edgefall_shadow_tracks)
+            if best_edgefall is None:
+                edgefall_state = "warming"
+                edgefall_text = "EDGEFALL SHADOW | NO ACTIVE TRACK"
+            else:
+                edgefall_state = str(best_edgefall.get("state", "normal"))
+                edgefall_text = (
+                    "EDGEFALL SHADOW | "
+                    f"TRACK #{best_edgefall['track_id']} | "
+                    f"{edgefall_state.upper()} | "
+                    f"P {float(best_edgefall.get('temporal_probability', 0.0)):.0%}"
+                )
+
+            reserved_bottom = 40 if hailo_shadow_poses else 6
+            bar_bottom = max(84, frame.shape[0] - reserved_bottom)
+            bar_top = max(42, bar_bottom - 44)
+            bar_color = EDGEFALL_STATE_COLORS.get(
+                edgefall_state,
+                EDGEFALL_STATE_COLORS["warming"],
+            )
+            cv2.rectangle(
+                frame,
+                (0, bar_top),
+                (frame.shape[1], bar_bottom),
+                bar_color,
+                -1,
+            )
+            cv2.putText(
+                frame,
+                edgefall_text,
+                (12, bar_bottom - 12),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.72,
+                (255, 255, 255),
+                2,
             )
 
         if self.pose_enabled and self.fall_tracker.fall_state != "normal":
@@ -1467,21 +1615,7 @@ class CameraWorker:
                 dict(item)
                 for item in self._edgefall_shadow_tracks
             ]
-            visible_edgefall_tracks = [
-                item for item in edgefall_tracks if item.get("visible", False)
-            ]
-            edgefall_candidates = visible_edgefall_tracks or edgefall_tracks
-            best_edgefall = (
-                max(
-                    edgefall_candidates,
-                    key=lambda item: (
-                        bool(item.get("fall_detected", False)),
-                        float(item.get("temporal_probability", 0.0)),
-                    ),
-                )
-                if edgefall_candidates
-                else None
-            )
+            best_edgefall = select_edgefall_track(edgefall_tracks)
             edgefall_state = (
                 str(best_edgefall.get("state", "warming"))
                 if best_edgefall is not None

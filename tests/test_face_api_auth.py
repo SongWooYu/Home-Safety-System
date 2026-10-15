@@ -148,6 +148,7 @@ class FaceApiAuthorizationTest(unittest.TestCase):
         self.assertIn("camera.hailo_shadow_same_frame", html)
         self.assertIn("camera.hailo_shadow_model", html)
         self.assertIn("camera.edgefall_shadow_probability", html)
+        self.assertIn("EdgeFall Shadow 감지", html)
 
 
 if __name__ == "__main__":

@@ -165,6 +165,16 @@ The Hailo comparison panel now shows:
 The overlay label uses `EDGE #<track> <state> <probability>`. It remains a Pi5
 development/exhibition overlay and is not placed on the clean WebRTC stream.
 
+After the first operator test, this was replaced by a large fixed
+`EDGEFALL SHADOW` status bar plus a larger per-track label. The legacy yellow
+`FALL SUSPECTED` and red `FALL CONFIRMED` bars are Rule detector output, not
+EdgeFall output.
+
+EdgeFall transitions are now recorded as local-only events named
+`fall_edgefall_*` and as `EDGEFALL_SHADOW_TRANSITION` lines in the systemd
+journal. Both explicitly set `published_to_mqtt=false`; this observability
+change does not promote EdgeFall out of Shadow mode.
+
 ## Next gate
 
 The next change should happen only after visual confirmation of v8s pose

@@ -4,7 +4,12 @@ import unittest
 
 import numpy as np
 
-from smarthome_vision.pipeline import CameraWorker, pose_visible_keypoint_ratio
+from smarthome_vision.pipeline import (
+    EDGEFALL_STATE_COLORS,
+    CameraWorker,
+    pose_visible_keypoint_ratio,
+    select_edgefall_track,
+)
 
 
 class OverlayScalingTest(unittest.TestCase):
@@ -69,6 +74,41 @@ class OverlayScalingTest(unittest.TestCase):
             2 / 3,
         )
         self.assertEqual(pose_visible_keypoint_ratio([], confidence=0.25), 0.0)
+
+    def test_edgefall_banner_uses_fallen_color_and_visible_track(self):
+        worker = CameraWorker.__new__(CameraWorker)
+        worker._poses = []
+        worker._detections = []
+        worker._hailo_shadow_poses = []
+        worker._edgefall_shadow_tracks = [
+            {
+                "track_id": 7,
+                "visible": True,
+                "state": "fallen",
+                "fall_detected": True,
+                "temporal_probability": 0.95,
+                "bbox": [100, 100, 300, 300],
+            }
+        ]
+        worker.edgefall_shadow = object()
+        worker.hailo_shadow_keypoint_confidence = 0.25
+        worker._faces = []
+        worker.ai_enabled = True
+        worker.label = "Dahua"
+        worker._capture_fps = 15.0
+        worker.pose_enabled = False
+
+        frame = np.zeros((360, 640, 3), dtype=np.uint8)
+        worker._draw_overlay(frame, (360, 640, 3))
+
+        np.testing.assert_array_equal(
+            frame[325, 620],
+            np.array(EDGEFALL_STATE_COLORS["fallen"]),
+        )
+        self.assertEqual(
+            select_edgefall_track(worker._edgefall_shadow_tracks)["track_id"],
+            7,
+        )
 
 
 if __name__ == "__main__":
