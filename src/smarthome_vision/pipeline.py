@@ -102,6 +102,10 @@ class WorkerSnapshot:
     recognized_faces: list[dict[str, Any]]
     capture_fps: float
     last_frame_age: float | None
+    source_backend: str
+    source_buffer_age_ms: float
+    overlay_stream_clients: int
+    clean_stream_clients: int
     capture_frame_seq: int
     pose_target_fps: float
     pose_effective_fps: float
@@ -149,7 +153,8 @@ class CameraWorker:
         self.event_bus = event_bus
         self.stream_width = max(1, stream_width)
         self.stream_height = max(1, stream_height)
-        self.stream_interval = 1.0 / max(stream_fps, 1.0)
+        self.stream_fps = max(stream_fps, 1.0)
+        self.stream_interval = 1.0 / self.stream_fps
         self.jpeg_quality = jpeg_quality
         self.ai_enabled = bool(camera_config.get("ai_enabled", False))
         self.person_clear_seconds = float(camera_config.get("person_clear_seconds", 3.0))
@@ -322,6 +327,7 @@ class CameraWorker:
         self._error: str | None = None
         self._last_frame_at: float | None = None
         self._capture_fps = 0.0
+        self._source_buffer_age_ms = 0.0
         self._person_present = False
         self._person_seen_streak = 0
         self._last_person_seen_at: float | None = None
@@ -402,6 +408,9 @@ class CameraWorker:
                 self._latest_frame_seq += 1
                 self._latest_frame_captured_at = now
                 self._last_frame_at = now
+                self._source_buffer_age_ms = float(
+                    getattr(self.source, "buffer_age_ms", 0.0)
+                )
                 self._online = True
                 self._error = None
 
@@ -962,7 +971,10 @@ class CameraWorker:
             )
 
         status = "AI ON" if self.ai_enabled else "MONITOR"
-        cv2.rectangle(frame, (0, 0), (frame.shape[1], 42), (18, 22, 30), -1)
+        # Keep the Dahua OSD clock at the top-right visible. It is useful for
+        # checking true camera-to-screen delay during exhibition setup.
+        header_width = min(frame.shape[1], 560)
+        cv2.rectangle(frame, (0, 0), (header_width, 42), (18, 22, 30), -1)
         cv2.putText(
             frame,
             f"{self.label} | {status} | {self._capture_fps:.1f} FPS",
@@ -1246,6 +1258,23 @@ class CameraWorker:
                     else None
                 ),
 
+                source_backend=str(
+                    getattr(self.source, "backend_active", self.source_type)
+                ),
+
+                source_buffer_age_ms=round(
+                    self._source_buffer_age_ms,
+                    1,
+                ),
+
+                overlay_stream_clients=(
+                    self._overlay_stream_clients
+                ),
+
+                clean_stream_clients=(
+                    self._clean_stream_clients
+                ),
+
                 capture_frame_seq=(
                     self._latest_frame_seq
                 ),
@@ -1408,10 +1437,10 @@ class VisionPipeline:
                 self.temporal_ensemble,
                 self.face_registry,
                 self.event_bus,
-                int(config["server"].get("stream_width", 640)),
-                int(config["server"].get("stream_height", 360)),
-                float(config["server"].get("stream_fps", 15)),
-                int(config["server"].get("jpeg_quality", 80)),
+                int(camera.get("stream_width", config["server"].get("stream_width", 640))),
+                int(camera.get("stream_height", config["server"].get("stream_height", 360))),
+                float(camera.get("stream_fps", config["server"].get("stream_fps", 15))),
+                int(camera.get("jpeg_quality", config["server"].get("jpeg_quality", 80))),
                 fall_config,
                 face_config,
                 float(config["mqtt"].get("status_interval_seconds", 5)),
@@ -1427,6 +1456,11 @@ class VisionPipeline:
                 config.get("url", ""),
                 config.get("transport", "tcp"),
                 bool(config.get("low_latency", False)),
+                config.get("backend", "auto"),
+                int(config.get("decode_width", 0)),
+                int(config.get("decode_height", 0)),
+                int(config.get("latency_ms", 100)),
+                config.get("codec", "h264"),
             )
         raise ValueError(f"Unsupported camera source: {source_type}")
 
@@ -1491,4 +1525,3 @@ class VisionPipeline:
         cv2.putText(placeholder, snapshot.error or "Waiting for camera...", (36, 250), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (80, 170, 255), 2)
         ok, encoded = cv2.imencode(".jpg", placeholder)
         return encoded.tobytes() if ok else b""
-

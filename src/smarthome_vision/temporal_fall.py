@@ -894,89 +894,92 @@ class TemporalFallShadow:
                 self.sequence_length,
             )
 
-        # GRU inference.
-        for track in (
-            self._tracks.values()
-        ):
+        # Run all ready tracks as one NumPy batch. The old per-person loop ran
+        # every ensemble member serially, so a busy exhibition scene could
+        # make GRU cost grow almost linearly with the number of people.
+        ready_tracks = [
+            track
+            for track in self._tracks.values()
+            if len(track.buffer) >= self.sequence_length
+        ]
 
-            if (
-                len(track.buffer)
-                < self.sequence_length
-            ):
-                continue
-
-            sequence = np.stack(
-                list(
-                    track.buffer
-                ),
+        if ready_tracks:
+            sequences = np.stack(
+                [
+                    np.stack(list(track.buffer), axis=0)
+                    for track in ready_tracks
+                ],
                 axis=0,
             ).astype(
                 np.float32,
                 copy=False,
             )
 
-            started = (
-                time.perf_counter()
+            started = time.perf_counter()
+            predict_batch = getattr(
+                self.ensemble,
+                "predict_batch",
+                None,
             )
-
-            result = (
-                self.ensemble.predict(
-                    sequence
-                )
-            )
-
-            track.inference_ms = (
-                (
-                    time.perf_counter()
-                    - started
-                )
-                * 1000.0
-            )
-
-            track.result = result
-
-            if (
-                result[
-                    "alert_score"
+            if callable(predict_batch):
+                results = predict_batch(sequences)
+            else:
+                results = [
+                    self.ensemble.predict(sequence)
+                    for sequence in sequences
                 ]
-                >= self.threshold
-            ):
-                track.consecutive_hits += 1
-                track.release_misses = 0
+
+            elapsed_ms = (
+                time.perf_counter() - started
+            ) * 1000.0
+            amortized_ms = elapsed_ms / len(ready_tracks)
+
+            for track, result in zip(ready_tracks, results):
+                track.inference_ms = amortized_ms
+                track.result = result
 
                 if (
-                    not track.alert_active
-                    and track.consecutive_hits
-                    >= self.consecutive
-                    and now
-                    >= track.cooldown_until
+                    result[
+                        "alert_score"
+                    ]
+                    >= self.threshold
                 ):
-                    track.alert_active = True
-                    track.transition = (
-                        "fall_shadow_confirmed"
-                    )
-
-            else:
-                track.consecutive_hits = 0
-
-                if track.alert_active:
-                    track.release_misses += 1
+                    track.consecutive_hits += 1
+                    track.release_misses = 0
 
                     if (
-                        track.release_misses
-                        >= self.release_frames
+                        not track.alert_active
+                        and track.consecutive_hits
+                        >= self.consecutive
+                        and now
+                        >= track.cooldown_until
                     ):
-                        track.alert_active = False
-                        track.release_misses = 0
-                        track.cooldown_until = (
-                            now
-                            + self.cooldown_seconds
-                        )
+                        track.alert_active = True
                         track.transition = (
-                            "fall_shadow_cleared"
+                            "fall_shadow_confirmed"
                         )
+
                 else:
-                    track.release_misses = 0
+                    track.consecutive_hits = 0
+
+                    if track.alert_active:
+                        track.release_misses += 1
+
+                        if (
+                            track.release_misses
+                            >= self.release_frames
+                        ):
+                            track.alert_active = False
+                            track.release_misses = 0
+                            track.cooldown_until = (
+                                now
+                                + self.cooldown_seconds
+                            )
+                            track.transition = (
+                                "fall_shadow_cleared"
+                            )
+                    else:
+                        track.release_misses = 0
 
         statuses = []
 

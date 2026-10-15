@@ -96,13 +96,12 @@ Home-Safety-System/
 
 | ID | 장치 | 수집 방식 | 현재 입력 설정 | 목적 |
 |---|---|---|---|---|
-| `cam3` | Camera Module 3 | Picamera2/libcamera | 960×540, 30 FPS | 낙상 시연, 개발 화면 |
-| `webcam` | ABKO APC720 | V4L2/OpenCV, MJPG 요청 | 1280×720, 30 FPS 요청 | 얼굴 등록, 근거리 확인 |
-| `dahua` | Dahua | RTSP/OpenCV/FFmpeg, TCP | 메인 스트림 `subtype=0` | 낙상 시연, 전시장 광각 |
+| `cam3` | Camera Module 3 | Picamera2/libcamera | 960×540, 15 FPS | 얼굴 등록·인식, 보조 화면 |
+| `dahua` | Dahua | RTSP/GStreamer, TCP | 메인 스트림 1920×1080 → 내부 960×540 | 주 낙상 분석, 전시장 광각 |
 
 Camera Module 3 자체는 MJPEG 웹캠이 아니다. Picamera2가 센서 프레임을 배열로
-전달한다. 세 입력은 수집 방식은 다르지만 이후에는 모두 OpenCV BGR 프레임으로
-정규화된다.
+전달한다. 두 입력은 수집 방식은 다르지만 이후에는 모두 OpenCV BGR 프레임으로
+정규화된다. ABKO APC720은 2026-10-15 운영 경로에서 제거했다.
 
 ```text
 카메라 캡처
@@ -163,21 +162,22 @@ AI 처리는 JPEG/H.264/WebRTC로 변환하기 전에 한다. 따라서 전송 �
 
 Pi5의 `:8080`은 최종 서비스가 아니라 다음을 확인하는 개발·등록 대시보드다.
 
-- 세 카메라 입력 상태와 FPS
+- 두 카메라 입력 상태와 FPS
 - 사람 박스, pose, 낙상 상태
 - 어떤 사건이 발생했는지
 - 얼굴 정면·좌측·우측 등록
 
-현재 MJPEG 출력만 640×360, 15 FPS, JPEG 품질 70으로 낮췄다. 원본 캡처와 AI,
-얼굴 등록용 프레임은 이 축소 영향을 받지 않는다. 브라우저 절전이나 화면 복귀 후
-검은 화면을 줄이기 위해 visibility/focus/pageshow/online 이벤트와 60초 watchdog로
-영상 연결을 재생성한다.
+현재 Camera Module 3는 640×360/15 FPS/JPEG70, Dahua는
+960×540/10 FPS/JPEG80으로 출력한다. Dahua는 GStreamer에서 내부 960×540 BGR로
+만들고 Pose 모델이 이를 320 입력으로 변환한다. 브라우저 영상은 탭·페이지·네트워크
+복귀와 실제 오류 때만 다시 연결하고 정상 스트림의 60초 강제 재연결은 제거했다.
 
 ### 8.2 WebRTC
 
-Pi4가 MJPEG 바이트를 중계하던 초기 구현은 느리고 끊겼다. 현재는 Pi5에서
-오버레이 MJPEG를 FFmpeg `libx264`로 H.264 640×360, 15 FPS, 카메라당 약
-1,000 kbit/s로 바꾸고 MediaMTX가 브라우저에 WebRTC로 직접 전달한다.
+Pi4가 MJPEG 바이트를 중계하던 초기 구현은 느리고 끊겼다. 현재 Camera Module 3의
+clean MJPEG만 Pi5에서 FFmpeg `libx264` H.264 640×360/15 FPS/약 1,000 kbit/s로
+바꾼다. Dahua는 원본 H.264를 MediaMTX가 pass-through하며 두 영상 모두 브라우저에
+WebRTC로 직접 전달한다.
 
 ```text
 Pi4 :8081 -> HTML, 상태 API, 경보
@@ -189,10 +189,11 @@ Pi4 백엔드는 영상 바이트를 처리하지 않는다.
 
 ### 8.3 성능 문제와 조치
 
-원본 크기 MJPEG 세 개를 동시에 보내던 때에는 합계 약 7.3 MB/s와 높은 Python CPU,
+원본 크기 MJPEG 세 개를 동시에 보내던 과거에는 합계 약 7.3 MB/s와 높은 Python CPU,
 큰 송신 대기열이 생겼다. 출력 전용 프레임을 640×360/15 FPS/품질 70으로 줄인 뒤
 합계 약 1.4 MB/s로 감소했고, FFmpeg도 카메라당 약 7% CPU 수준으로 내려갔다.
-이는 실측 당시 값이며 장면과 접속자 수에 따라 변한다.
+이는 ABKO 퇴역 전 실측값이다. 현재 Dahua 저지연 POC는 960×540/10 FPS/JPEG80이며
+세부 실측은 `DAHUA_LOW_LATENCY_POC_2026-10-15.md`를 따른다.
 
 로컬 HDMI Chromium, 원격 MJPEG, 세 WebRTC 스트림을 동시에 켜면 같은 프레임 생성과
 소프트웨어 인코딩 자원을 경쟁한다. 그래서 HDMI 전시 서비스는 현재 꺼 두었고,

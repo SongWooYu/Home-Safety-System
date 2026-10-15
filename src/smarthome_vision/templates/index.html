@@ -1298,7 +1298,7 @@ select{
 
             <div class="stat">
               <div class="stat-label">
-                Pi5 프레임 age
+                입력 버퍼 age
               </div>
 
               <div
@@ -2006,18 +2006,15 @@ document.addEventListener(
 );
 
 
-setInterval(
-  () => {
+window.addEventListener(
+  "pageshow",
+  restartAllStreams
+);
 
-    if(
-      document.visibilityState
-      === "visible"
-    ){
-      restartAllStreams();
-    }
 
-  },
-  60000
+window.addEventListener(
+  "online",
+  restartAllStreams
 );
 
 
@@ -2459,10 +2456,11 @@ function renderCamera(
   document.getElementById(
     `age-${id}`
   ).textContent =
-    camera.last_frame_age
-    == null
-      ? "-"
-      : `${camera.last_frame_age}s`;
+    camera.source_type === "rtsp"
+      ? `${Number(camera.source_buffer_age_ms || 0).toFixed(0)}ms`
+      : camera.last_frame_age == null
+        ? "-"
+        : `${camera.last_frame_age}s`;
 
 
   const error =

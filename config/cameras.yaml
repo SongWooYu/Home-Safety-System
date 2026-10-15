@@ -197,5 +197,38 @@ cameras:
     transport:
       tcp
 
-    # FFmpeg가 과거 RTSP 프레임을 큐에 쌓지 않도록 한다.
+    # OpenCV/FFmpeg 내부 큐 대신 GStreamer appsink(max-buffers=1)를 사용해
+    # 처리 중 밀린 과거 프레임을 버리고 최신 프레임만 유지한다.
+    backend:
+      gstreamer
+
+    codec:
+      h264
+
+    latency_ms:
+      100
+
+    # AI 입력과 개발용 표시에 1080p 전체 디코드 결과는 필요하지 않다.
+    # 카메라는 메인스트림(1920x1080)을 유지하되 Pi5 내부에서 960x540으로 축소한다.
+    decode_width:
+      960
+
+    decode_height:
+      540
+
+    # Dahua는 사람 수와 무관하게 GRU 시간축과 같은 10 FPS로 전송한다.
+    # 640x360/JPEG70보다 선명하게 하되 MJPEG 전송 큐 누적은 줄인다.
+    stream_width:
+      960
+
+    stream_height:
+      540
+
+    stream_fps:
+      10
+
+    jpeg_quality:
+      80
+
+    # OpenCV fallback에서도 가능한 저지연 옵션을 사용한다.
     low_latency: true

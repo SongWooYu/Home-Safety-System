@@ -12,7 +12,9 @@
 - 현재 운영 AI는 아직 NCNN이며 Hailo pose의 tracker/GRU 연결이 다음 단계다.
 - rule은 지금 삭제하지 않고 GRU active 검증 뒤 fallback을 거쳐 제거한다.
 - ABKO APC720 운영 경로를 제거하고 Camera Module 3가 얼굴 등록·인식을 담당한다.
-- 오버레이 좌표는 원본 해상도에서 640×360 표시 좌표로 명시 변환한다.
+- 오버레이 좌표는 원본 해상도에서 카메라별 표시 좌표로 명시 변환한다.
+- Dahua 개발 화면의 10초 누적 지연을 제거하기 위해 최신 프레임 우선 GStreamer
+  입력과 다인원 batch GRU를 적용했다.
 
 
 ## 단일 기준 작업 공간
@@ -50,7 +52,8 @@ Pi5의 `eth0`는 현재 내려가 있고 Dahua는 Pi5에 직결하지 않는다.
 - Hailo: AI HAT+ Hailo-8 장착, 공식 pose/metadata-only 기준선 검증 완료
 - WebRTC: MediaMTX가 enabled/active; Dahua는 원본 H.264, Cam3만 on-demand FFmpeg
 - 전시 출력: 기존 HDMI Chromium 자동 실행은 disabled/inactive; 네이티브 Wayland/OpenGL 표시 경로를 다음 단계로 구현
-- 개발 MJPEG: 640×360, 15 FPS, JPEG 품질 70; 전시 WebRTC: H.264 640×360, 15 FPS, 카메라당 1,000 kbit/s
+- 개발 MJPEG: Cam3 640×360/15 FPS/JPEG70, Dahua 960×540/10 FPS/JPEG80;
+  Pi4 Dahua WebRTC는 원본 H.264 pass-through
 - 현재 카메라: Camera Module 3와 Dahua RTSP, 2/2 온라인
 - 사람/자세: Dahua의 YOLO11n-pose NCNN 320 단일 추론에서 bbox와 keypoint 생성
 - 시간 낙상: B76 3-seed NumPy GRU ensemble을 20프레임/10 FPS Quiet shadow로 실행
@@ -92,8 +95,9 @@ Camera Module 3와 Dahua는 각각 약 14.9 FPS로 수집되고 MQTT가 연결�
 Pi5의 `:8080`은 카메라 입력, 탐지 박스, FPS, 낙상 규칙, 얼굴 등록을 확인하는
 개발/전시 진단 대시보드다. 이 화면에 접속한 동안에만 overlay JPEG를 생성하며,
 화면을 닫으면 렌더링 분기는 중지된다. 브라우저 절전·탭 복귀 후 검은
-화면을 줄이기 위해 visibility, focus, pageshow, online 이벤트와 60초 watchdog으로
-MJPEG 연결을 새로 만든다. 상태·이벤트 조회 주기는 3초다.
+화면을 줄이기 위해 visibility, pageshow, online 이벤트와 실제 오류 때만 MJPEG
+연결을 새로 만든다. 정상 영상의 60초 강제 재연결은 순간 끊김 원인이 되어
+제거했다. 상태는 1초, 이벤트는 3초 주기로 조회한다.
 
 Pi4의 `:8081`은 전체 안전 상태, 최근 사건, 경보 확인·취소를 제공하는 통합 관제
 화면이다. 영상 iframe은 Pi4를 거치지 않고 Pi5 `:8889`의 MediaMTX와 WebRTC로
@@ -108,13 +112,15 @@ Dahua는 `dahuaclean`의 1920×1080 원본 H.264를 사용한다. 절전·탭 �
 - 사람 외 객체의 시각화와 상태 출력을 숨김
 - 상태 변화 기반 사람·낙상 MQTT 이벤트와 retain 카메라 상태 발행
 - Pi5 자동 시작과 2카메라 수집 확인
-- Pi5 개발 화면 MJPEG 640×360/15 FPS 경량화와 60초 자동 재연결
+- Pi5 카메라별 개발 MJPEG 경량화와 탭·네트워크 복귀 시 선택적 재연결
 - 코드 없는 현장 얼굴 등록, 관리 키로 보호한 목록·삭제, 이름 비공개 상태 출력
 - 정면·좌측·우측 다각도 얼굴 템플릿
 - Pi4 MQTT/PostgreSQL/수집/자동화/최종 화면 Compose 구성과 설치 도구
 - Pi5 MediaMTX/WebRTC, Dahua 원본 H.264 pass-through, Cam3 on-demand publisher
 - Pi5 overlay와 Pi4 clean 영상 분리, 미시청 시 JPEG/FFmpeg 자동 중지
 - Hailo-8 pose 하드웨어·metadata-only 성능 기준선 확보
+- Dahua 최신 프레임 우선 GStreamer 입력, 960×540 표시, RTSP buffer age 계측
+- 다인원 B76 3-seed GRU batch 처리(6명 실측 약 1.69배 개선)
 - Pi4 MJPEG Python 프록시 제거, 브라우저-Pi5 직접 영상 경로 구현
 - 동일 RTSP 프레임의 temporal buffer 중복 삽입 방지와 실효 FPS/지연 계측
 - B76 3-seed NumPy GRU shadow, 사람별 motion tracker, confirm/release/cooldown 구현
@@ -153,3 +159,5 @@ Mac mini M4 학습, Hailo-8 추론, Pi5/Pi4 역할 재분배를 포함한 다음
 [Hailo-8 런타임 기준선과 전환 계획](HAILO_RUNTIME_BASELINE_2026-10-15.md)을 따른다.
 Canvas와 네이티브 표시의 차이, 듀얼 HDMI 자원 판단과 구현 게이트는
 [네이티브 전시 표시 결정](NATIVE_EXHIBITION_DISPLAY_2026-10-15.md)에 기록했다.
+Dahua 10초 누적 지연의 증거, 원인, 구현과 90초 부하 결과는
+[Dahua 저지연 비전 POC](DAHUA_LOW_LATENCY_POC_2026-10-15.md)에 기록했다.

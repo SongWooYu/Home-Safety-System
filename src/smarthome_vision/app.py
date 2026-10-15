@@ -61,7 +61,11 @@ def create_app(pipeline: VisionPipeline) -> Flask:
             "off",
         }
         default_stream_fps = float(
-            pipeline.config.get("server", {}).get("stream_fps", 15)
+            getattr(
+                pipeline.workers[camera_id],
+                "stream_fps",
+                pipeline.config.get("server", {}).get("stream_fps", 15),
+            )
         )
         try:
             stream_fps = min(
@@ -181,4 +185,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

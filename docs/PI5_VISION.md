@@ -12,13 +12,14 @@ Camera Module 3와 Dahua RTSP를 하나의 처리 결과와 MQTT 계약으로 �
 | 입력 | 수집 계층 | 입력 형식 | 현재 설정 |
 |---|---|---|---|
 | Camera Module 3 | Picamera2/libcamera | 센서 프레임을 Picamera2가 배열로 제공 | 960×540, 15 FPS |
-| Dahua | RTSP/OpenCV/FFmpeg | 메인 스트림 압축 영상을 디코딩 | `subtype=0`, 실제 1920×1080 약 15 FPS 수집 |
+| Dahua | RTSP/GStreamer | 메인 스트림 H.264를 최신 프레임 우선으로 디코딩 | `subtype=0`, 1920×1080 약 15 FPS → 내부 960×540 |
 
 Camera Module 3 자체를 웹캠처럼 “MJPEG 카메라”라고 부르지 않는다. 두 입력은
-수집 방식이 다르지만 분석 시점에는 모두 OpenCV BGR 배열이다. 개발 웹 화면으로
-보낼 때만 분석·오버레이가 끝난 프레임을 640×360, 15 FPS, JPEG 품질 70으로
-축소·압축해 multipart MJPEG로 전송한다. 캡처·AI 입력 해상도와 얼굴 등록용 원본
-프레임은 낮추지 않는다.
+수집 방식이 다르지만 분석 시점에는 모두 OpenCV BGR 배열이다. 개발 웹 화면은
+Camera Module 3를 640×360/15 FPS/JPEG70, Dahua를 960×540/10 FPS/JPEG80
+multipart MJPEG로 전송한다. Dahua는 Pi5 내부에서 960×540으로 내린 프레임을
+pose와 개발 표시에 함께 사용하며 Pose 모델 입력은 별도로 320이다. Camera Module 3의
+얼굴 등록용 원본 프레임은 표시 축소 영향을 받지 않는다.
 
 ## 처리 순서
 
@@ -32,19 +33,32 @@ Camera Module 3 자체를 웹캠처럼 “MJPEG 카메라”라고 부르지 않
   -> rule/GRU 상태 추적
   -> 상태 변화 이벤트 + 주기 상태 MQTT 발행
   -> 박스/상태 오버레이
-  -> 640×360/15 FPS 개발 화면용 JPEG 인코딩
+  -> 카메라별 개발 화면용 JPEG 인코딩
   -> 전시용 FFmpeg H.264 인코딩 -> MediaMTX -> WebRTC 브라우저
 ```
 
-AI 처리는 전송 형식으로 바꾸기 전에 한다. `/stream/<camera_id>?fps=15`의 최신
-분석 JPEG를 Pi5 로컬 FFmpeg가 받아 H.264 Baseline 640×360, 15 FPS,
-1,000 kbit/s로 소프트웨어 인코딩한다. MediaMTX에는 loopback RTSP로 게시하고,
-브라우저에는 WebRTC로 전달한다. Pi4는 영상 경로에 들어가지 않는다.
+AI 처리는 전송 형식으로 바꾸기 전에 한다. Camera Module 3의 clean JPEG는 Pi5
+로컬 FFmpeg가 H.264 Baseline 640×360, 15 FPS, 1,000 kbit/s로 소프트웨어
+인코딩한다. Dahua는 원본 H.264를 MediaMTX가 직접 pass-through한다. 브라우저에는
+WebRTC로 전달하며 Pi4는 영상 바이트 경로에 들어가지 않는다.
 
 Pi5에는 H.264 하드웨어 인코더가 없으므로 `libx264`를 쓴다. 2026-09-17 실측에서
-원본 크기 JPEG를 사용했을 때 FFmpeg 프로세스는 각각 약 10~14% CPU였으나,
-MJPEG를 640×360으로 통일한 뒤 약 7%로 감소했다. 장면과 접속자 수에 따라
+원본 크기 Camera Module 3 JPEG를 사용했을 때 FFmpeg 프로세스는 약 10~14%
+CPU였으나, 640×360으로 낮춘 뒤 약 7%로 감소했다. 장면과 접속자 수에 따라
 달라지므로 전시 전 장시간 측정한다.
+
+## Dahua 최신 프레임 정책
+
+OpenCV/FFmpeg RTSP 내부 큐는 소비자가 잠시 느려질 때 과거 프레임을 쌓아
+10초 지연 뒤 건너뛰기를 만들었다. 현재 Dahua는 GStreamer `rtspsrc`와
+`appsink max-buffers=1, drop=true`를 사용한다. 디코드 뒤 queue도 한 프레임으로
+제한하므로 처리량이 부족하면 과거 프레임을 버리고 최신 시점으로 복귀한다.
+
+Pi5 상태 API의 `source_backend`는 `gstreamer`, `source_buffer_age_ms`는 로컬
+GStreamer PTS 기준 입력 지연을 나타낸다. 3~6명 장면 90초 실측에서 입력 age는
+약 0.39~0.50초, 캡처는 대부분 14.4~15.4 FPS, Pose는 9.1~9.5 FPS였다.
+세부 원인과 합격 기준은
+[Dahua 저지연 비전 POC](DAHUA_LOW_LATENCY_POC_2026-10-15.md)를 따른다.
 
 ## 모델과 필터
 

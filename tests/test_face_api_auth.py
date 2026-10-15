@@ -138,7 +138,7 @@ class FaceApiAuthorizationTest(unittest.TestCase):
         response = self.client.get("/")
 
         html = response.get_data(as_text=True)
-        self.assertIn("Pi5 프레임 age", html)
+        self.assertIn("입력 버퍼 age", html)
         self.assertIn("RULE 낙상", html)
         self.assertIn("GRU SHADOW 기준 충족", html)
         self.assertIn("MQTT 미전송", html)
