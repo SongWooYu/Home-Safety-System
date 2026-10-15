@@ -37,6 +37,46 @@ AI HAT+의 Hailo-8은 정상 인식되고 pose HEF도 하드웨어에서 약 31 
 삽입하지 않는다. GStreamer/Hailo callback에서 metadata만 받아 기존 Python 상태
 머신에 전달한다.
 
+### Dahua 라이브 프레임 어댑터 실측
+
+기존 GStreamer 최신 프레임 우선 RTSP source에서 나온 960×540 BGR 프레임을
+`appsrc -> letterbox -> Hailo YOLOv8m Pose -> metadata callback -> fakesink`로
+전달하는 프로젝트 내부 어댑터를 추가했다. 기존 NCNN 운영 서비스와 동시에 실행한
+15초 결과는 다음과 같다.
+
+| 항목 | 결과 |
+|---|---:|
+| 처리 프레임 | 217 |
+| 실효 FPS | 14.44 FPS |
+| Hailo pipeline 평균 | 37.52 ms |
+| Hailo pipeline p95 | 46.21 ms |
+| RTSP buffer age 평균 / p95 | 224.83 / 289.21 ms |
+| 사람 검출 프레임 비율 | 98.16% |
+| 평균 사람 수 | 1.07명 |
+| bbox 면적 비율 평균 | 0.192 |
+
+성능과 지연은 10 FPS 시간 계약을 만족하지만, 현재 장면에서 Hailo keypoint
+confidence 평균은 0.1480, 중앙값은 0.0935였다. 기존 B76 runtime의 가시 관절
+기준인 confidence 0.25를 적용하면 평균 가시 관절 비율이 0.2556에 불과했다.
+같은 시점 NCNN 운영 상태의 track별 가시 관절 비율은 약 0.88이었다.
+
+이는 단순 좌표 변환 문제가 아니라 다음 두 domain 차이를 포함한다.
+
+- GRU 학습 pose: YOLO11n-Pose, `imgsz=960`, confidence 0.10
+- Hailo runtime pose: YOLOv8m-Pose HEF, 640×640, 설치된 postprocess 검출 floor 0.60
+
+따라서 Hailo 출력은 아직 GRU active 경보 입력으로 승격하지 않는다. 우선
+서기·걷기·앉기·숙이기·방향별 연기 낙상에서 bbox/keypoint coverage를 수집하고,
+Hailo confidence 보정 또는 Hailo 출력으로 재추출한 데이터 기반 GRU 재학습 여부를
+결정한다. 기존 rule active와 NCNN runtime은 이 검증 동안 유지한다.
+
+재현 명령:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/benchmark_pose_hailo.py \
+  --duration 15 --warmup 3
+```
+
 ## 영상 경로 기준선
 
 ```text
