@@ -133,6 +133,7 @@ class WorkerSnapshot:
     pose_source_frames_skipped: int
     pose_duplicate_frames_prevented: int
     hailo_shadow_enabled: bool
+    hailo_shadow_model: str | None
     hailo_shadow_state: str
     hailo_shadow_person_count: int
     hailo_shadow_effective_fps: float
@@ -141,6 +142,13 @@ class WorkerSnapshot:
     hailo_shadow_visible_keypoint_ratio: float
     hailo_shadow_same_frame: bool
     hailo_shadow_error: str | None
+    edgefall_shadow_enabled: bool
+    edgefall_shadow_profile: str | None
+    edgefall_shadow_state: str
+    edgefall_shadow_probability: float
+    edgefall_shadow_best_track_id: int | None
+    edgefall_shadow_tracks: list[dict[str, Any]]
+    edgefall_shadow_error: str | None
     temporal_enabled: bool
     temporal_mode: str
     temporal_state: str
@@ -193,11 +201,37 @@ class CameraWorker:
         self.hailo_shadow_keypoint_confidence = float(
             hailo_shadow_config.get("keypoint_confidence", 0.25)
         )
+        self.hailo_shadow_target_fps = max(
+            float(hailo_shadow_config.get("analysis_fps", 15.0)),
+            0.1,
+        )
+        self.hailo_shadow_interval = 1.0 / self.hailo_shadow_target_fps
         self._hailo_shadow_error = (
             hailo_shadow_error
             if self.hailo_shadow_configured
             else None
         )
+        self.edgefall_shadow: Any | None = None
+        self._edgefall_shadow_error: str | None = None
+        edgefall_config = hailo_shadow_config.get("edgefall", {})
+        if (
+            self.hailo_shadow_configured
+            and edgefall_config.get("enabled", False)
+        ):
+            try:
+                from .edgefall_shadow import EdgeFallShadow
+
+                self.edgefall_shadow = EdgeFallShadow(
+                    library_path=edgefall_config["library"],
+                    keypoint_confidence=float(
+                        edgefall_config.get(
+                            "keypoint_confidence",
+                            self.hailo_shadow_keypoint_confidence,
+                        )
+                    ),
+                )
+            except Exception as exc:
+                self._edgefall_shadow_error = str(exc)
         self.face_registry = face_registry
         self.event_bus = event_bus
         self.stream_width = max(1, stream_width)
@@ -394,6 +428,7 @@ class CameraWorker:
         self._hailo_shadow_completed_at = deque(maxlen=120)
         self._hailo_shadow_latency_ms = deque(maxlen=120)
         self._hailo_shadow_frame_seq = 0
+        self._edgefall_shadow_tracks: list[dict[str, Any]] = []
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -419,6 +454,10 @@ class CameraWorker:
 
         if self._ai_thread is not None:
             self._ai_thread.join(timeout=3)
+
+        close_edgefall = getattr(self.edgefall_shadow, "close", None)
+        if callable(close_edgefall):
+            close_edgefall()
 
     def _set_error(self, message: str) -> None:
         with self._lock:
@@ -572,8 +611,10 @@ class CameraWorker:
     def _ai_loop(self) -> None:
 
         next_pose_analysis = 0.0
+        next_hailo_analysis = 0.0
         next_face_analysis = 0.0
         last_pose_frame_seq = 0
+        last_hailo_frame_seq = 0
         last_face_frame_seq = 0
         duplicate_counted_seq = -1
 
@@ -866,11 +907,6 @@ class CameraWorker:
                             ),
                         )
 
-                    self._update_hailo_shadow(
-                        frame,
-                        frame_seq,
-                    )
-
                 except Exception as exc:
 
                     with self._lock:
@@ -880,6 +916,28 @@ class CameraWorker:
                         )
 
                 did_work = True
+
+
+            # --------------------------------------
+            # Hailo / EdgeFall Shadow
+            # --------------------------------------
+
+            hailo_requested = self._hailo_shadow_requested()
+            hailo_due = (
+                hailo_requested
+                and now >= next_hailo_analysis
+                and frame_seq != last_hailo_frame_seq
+            )
+
+            if hailo_due:
+                last_hailo_frame_seq = frame_seq
+                next_hailo_analysis = now + self.hailo_shadow_interval
+                self._update_hailo_shadow(frame, frame_seq)
+                did_work = True
+            elif not hailo_requested:
+                with self._lock:
+                    self._hailo_shadow_poses = []
+                    self._edgefall_shadow_tracks = []
 
 
             # --------------------------------------
@@ -944,7 +1002,7 @@ class CameraWorker:
         frame: np.ndarray,
         frame_seq: int,
     ) -> None:
-        """Run Hailo on the primary pose frame without affecting alarms."""
+        """Run Hailo and EdgeFall metadata shadow without affecting alarms."""
         if not self._hailo_shadow_requested():
             with self._lock:
                 self._hailo_shadow_poses = []
@@ -961,8 +1019,23 @@ class CameraWorker:
 
         finished = time.monotonic()
         latency_ms = (time.perf_counter() - started) * 1000.0
+        edgefall_tracks: list[dict[str, Any]] = []
+        edgefall_error: str | None = self._edgefall_shadow_error
+        if self.edgefall_shadow is not None:
+            try:
+                edgefall_tracks = self.edgefall_shadow.update(
+                    poses,
+                    frame.shape[1],
+                    frame.shape[0],
+                    finished,
+                )
+                edgefall_error = None
+            except Exception as exc:
+                edgefall_error = str(exc)
         with self._lock:
             self._hailo_shadow_poses = poses
+            self._edgefall_shadow_tracks = edgefall_tracks
+            self._edgefall_shadow_error = edgefall_error
             self._hailo_shadow_frame_seq = frame_seq
             self._hailo_shadow_latency_ms.append(latency_ms)
             self._hailo_shadow_completed_at.append(finished)
@@ -1026,6 +1099,7 @@ class CameraWorker:
 
         primary_poses = self._poses
         hailo_shadow_poses = getattr(self, "_hailo_shadow_poses", [])
+        edgefall_shadow_tracks = getattr(self, "_edgefall_shadow_tracks", [])
         hailo_keypoint_confidence = getattr(
             self,
             "hailo_shadow_keypoint_confidence",
@@ -1088,6 +1162,29 @@ class CameraWorker:
                 (x1, min(frame.shape[0] - 8, y2 + 24)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.58,
+                color,
+                2,
+            )
+
+        for track in edgefall_shadow_tracks:
+            if not track.get("visible", False):
+                continue
+            x1, y1, _x2, _y2 = box(track["bbox"])
+            state = str(track.get("state", "normal")).upper()
+            probability = float(track.get("temporal_probability", 0.0))
+            color = (
+                (40, 40, 255)
+                if track.get("fall_detected", False)
+                else (0, 165, 255)
+                if state == "SUSPECTED"
+                else (190, 120, 255)
+            )
+            cv2.putText(
+                frame,
+                f"EDGE #{track['track_id']} {state} {probability:.2f}",
+                (x1, max(52, y1 - 10)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.52,
                 color,
                 2,
             )
@@ -1366,6 +1463,45 @@ class CameraWorker:
             else:
                 hailo_shadow_state = "running"
 
+            edgefall_tracks = [
+                dict(item)
+                for item in self._edgefall_shadow_tracks
+            ]
+            visible_edgefall_tracks = [
+                item for item in edgefall_tracks if item.get("visible", False)
+            ]
+            edgefall_candidates = visible_edgefall_tracks or edgefall_tracks
+            best_edgefall = (
+                max(
+                    edgefall_candidates,
+                    key=lambda item: (
+                        bool(item.get("fall_detected", False)),
+                        float(item.get("temporal_probability", 0.0)),
+                    ),
+                )
+                if edgefall_candidates
+                else None
+            )
+            edgefall_state = (
+                str(best_edgefall.get("state", "warming"))
+                if best_edgefall is not None
+                else "warming"
+                if self.edgefall_shadow is not None
+                else "error"
+                if self._edgefall_shadow_error
+                else "disabled"
+            )
+            edgefall_probability = (
+                float(best_edgefall.get("temporal_probability", 0.0))
+                if best_edgefall is not None
+                else 0.0
+            )
+            edgefall_best_track_id = (
+                int(best_edgefall["track_id"])
+                if best_edgefall is not None
+                else None
+            )
+
             return WorkerSnapshot(
                 camera_id=self.camera_id,
                 label=self.label,
@@ -1536,6 +1672,21 @@ class CameraWorker:
                     self.hailo_shadow_configured
                 ),
 
+                hailo_shadow_model=(
+                    (
+                        str(
+                            getattr(
+                                self.hailo_shadow_estimator,
+                                "model_name",
+                                "",
+                            )
+                        )
+                        or None
+                    )
+                    if self.hailo_shadow_configured
+                    else None
+                ),
+
                 hailo_shadow_state=hailo_shadow_state,
 
                 hailo_shadow_person_count=len(
@@ -1571,6 +1722,27 @@ class CameraWorker:
                 ),
 
                 hailo_shadow_error=self._hailo_shadow_error,
+
+                edgefall_shadow_enabled=(
+                    self.edgefall_shadow is not None
+                ),
+
+                edgefall_shadow_profile=(
+                    str(getattr(self.edgefall_shadow, "profile", "")) or None
+                ),
+
+                edgefall_shadow_state=edgefall_state,
+
+                edgefall_shadow_probability=round(
+                    edgefall_probability,
+                    4,
+                ),
+
+                edgefall_shadow_best_track_id=edgefall_best_track_id,
+
+                edgefall_shadow_tracks=edgefall_tracks,
+
+                edgefall_shadow_error=self._edgefall_shadow_error,
 
                 temporal_enabled=(
                     self.temporal_fall
@@ -1660,7 +1832,10 @@ class VisionPipeline:
                     from .inference.hailo_pose import HailoPoseEstimator
 
                     self.hailo_shadow_estimator = HailoPoseEstimator(
-                        hef_path=fall_config["hailo_model"],
+                        hef_path=hailo_shadow_config.get(
+                            "model",
+                            fall_config["hailo_model"],
+                        ),
                         postprocess_path=fall_config["hailo_postprocess"],
                         whole_buffer_path=fall_config["hailo_whole_buffer"],
                         confidence=float(

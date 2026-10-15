@@ -92,3 +92,24 @@ over window accuracy alone.
 ## Fallback
 
 Keep the existing rule-based fall detector available until the GRU runtime path is verified on Raspberry Pi 5.
+
+## 2026-10-15 EdgeFallKit shadow
+
+An experimental Hailo-only comparison path is available for the Dahua camera:
+
+```text
+YOLOv8s Pose v2.15 HEF
+-> metadata-only EdgeFallKit tracker
+-> Hailo-specific 48-frame temporal MLP
+-> EdgeFallKit state machine
+```
+
+It is strictly Shadow-only and must not publish MQTT or trigger Pi4 audio until
+field validation is accepted. Build its Git-ignored runtime artifacts with:
+
+```bash
+./scripts/setup_edgefall_shadow.sh --accept-upstream-license
+```
+
+See `docs/EDGEFALL_SHADOW_2026-10-15.md`. Do not feed the EdgeFallKit Hailo
+temporal weights from a different pose frontend or HEF version.

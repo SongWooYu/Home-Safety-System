@@ -73,7 +73,7 @@ class HailoPoseEstimator:
     """Synchronous BGR-frame adapter around the Hailo GStreamer pipeline.
 
     The pipeline has no overlay or display branch. It letterboxes a copy of
-    the input for YOLOv8m Pose, aggregates metadata back onto the original
+    the input for a YOLOv8 Pose HEF, aggregates metadata back onto the original
     frame coordinates, and returns only bbox/keypoint dictionaries.
     """
 
@@ -104,6 +104,7 @@ class HailoPoseEstimator:
         Gst.init(None)
         self._gst = Gst
         self.hef_path = str(hef_path)
+        self.model_name = Path(self.hef_path).name
         self.postprocess_path = str(postprocess_path)
         self.whole_buffer_path = str(whole_buffer_path)
         self.confidence = max(0.0, min(1.0, float(confidence)))

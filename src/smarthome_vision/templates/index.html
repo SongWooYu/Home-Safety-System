@@ -1415,7 +1415,7 @@ select{
         </h2>
 
         <div class="section-note">
-          Dahua · 동일 프레임 NCNN/Hailo Pose 비교 + Rule + Temporal GRU
+          Dahua · NCNN 기준선 + Hailo v8s/EdgeFall Shadow + 기존 GRU 비교
         </div>
       </div>
 
@@ -1432,7 +1432,7 @@ select{
         <div class="panel-head">
 
           <div class="panel-title">
-            Pose Backend 동일 프레임 비교
+            Pose Backend 병렬 Shadow 비교
           </div>
 
           <span
@@ -1493,6 +1493,22 @@ select{
                 <div class="compare-metric">
                   <label>보이는 관절</label>
                   <strong id="compare-hailo-keypoints">-</strong>
+                </div>
+                <div class="compare-metric">
+                  <label>모델</label>
+                  <strong id="compare-hailo-model">-</strong>
+                </div>
+                <div class="compare-metric">
+                  <label>EdgeFall 상태</label>
+                  <strong id="compare-edgefall-state">-</strong>
+                </div>
+                <div class="compare-metric">
+                  <label>EdgeFall 확률</label>
+                  <strong id="compare-edgefall-probability">-</strong>
+                </div>
+                <div class="compare-metric">
+                  <label>EdgeFall 트랙</label>
+                  <strong id="compare-edgefall-track">-</strong>
                 </div>
               </div>
             </div>
@@ -2015,6 +2031,9 @@ const stateLabels = {
 
   fallen:
     "낙상 후",
+
+  recovering:
+    "회복 중",
 
   sitting:
     "앉음",
@@ -2768,6 +2787,28 @@ function renderFallAI(
   ).textContent =
     percent(camera.hailo_shadow_visible_keypoint_ratio || 0);
 
+  document.getElementById(
+    "compare-hailo-model"
+  ).textContent =
+    camera.hailo_shadow_model || "-";
+
+  document.getElementById(
+    "compare-edgefall-state"
+  ).textContent =
+    stateLabel(camera.edgefall_shadow_state);
+
+  document.getElementById(
+    "compare-edgefall-probability"
+  ).textContent =
+    percent(camera.edgefall_shadow_probability || 0);
+
+  document.getElementById(
+    "compare-edgefall-track"
+  ).textContent =
+    camera.edgefall_shadow_best_track_id == null
+      ? "-"
+      : `#${camera.edgefall_shadow_best_track_id}`;
+
   const hailoCompareBadge =
     document.getElementById(
       "hailo-compare-badge"
@@ -2805,10 +2846,15 @@ function renderFallAI(
   if(camera.hailo_shadow_error){
     hailoCompareNote.textContent =
       `Hailo Shadow 오류: ${camera.hailo_shadow_error}`;
+  }else if(camera.edgefall_shadow_error){
+    hailoCompareNote.textContent =
+      `EdgeFall Shadow 오류: ${camera.edgefall_shadow_error}`;
   }else{
     hailoCompareNote.textContent =
-      "같은 Dahua 원본 프레임을 비교합니다. "
-      + "Hailo Shadow 결과는 화면과 계측에만 사용하며 "
+      "Dahua 최신 프레임을 독립 주기로 분석합니다. "
+      + `${camera.hailo_shadow_model || "Hailo Pose"} · `
+      + `${camera.edgefall_shadow_profile || "EdgeFall 준비 중"} · `
+      + "결과는 화면과 계측에만 사용하며 "
       + "Rule·GRU 입력 및 MQTT 경보에는 사용하지 않습니다.";
   }
 

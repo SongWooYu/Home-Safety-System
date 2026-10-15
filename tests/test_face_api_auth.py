@@ -143,9 +143,11 @@ class FaceApiAuthorizationTest(unittest.TestCase):
         self.assertIn("GRU SHADOW 기준 충족", html)
         self.assertIn("MQTT 미전송", html)
         self.assertIn("자세 기하 점수는 낙상 확률이 아니며", html)
-        self.assertIn("Pose Backend 동일 프레임 비교", html)
+        self.assertIn("Pose Backend 병렬 Shadow 비교", html)
         self.assertIn("Hailo Shadow (자홍 박스 · 주황 관절)", html)
         self.assertIn("camera.hailo_shadow_same_frame", html)
+        self.assertIn("camera.hailo_shadow_model", html)
+        self.assertIn("camera.edgefall_shadow_probability", html)
 
 
 if __name__ == "__main__":

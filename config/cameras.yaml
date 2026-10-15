@@ -88,8 +88,17 @@ fall_detection:
   hailo_shadow:
     enabled: true
     run_when_viewed: true
+    analysis_fps: 15
+    # EdgeFallKit의 Hailo 시간 모델과 동일한 Model Zoo v2.15 입력 도메인.
+    # runtime/은 Git 제외 영역이며 setup 문서의 SHA-256으로 검증한다.
+    model:
+      runtime/models/yolov8s_pose_v2_15_h8.hef
     confidence: 0.0
     keypoint_confidence: 0.25
+    edgefall:
+      enabled: true
+      library: runtime/native/libedgefall_shadow.so
+      keypoint_confidence: 0.25
 
   input_size: 320
 
