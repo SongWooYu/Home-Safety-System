@@ -21,7 +21,7 @@ WEBRTC_BASE_URL = os.getenv("WEBRTC_BASE_URL", "http://192.168.1.20:8889").rstri
 WEBRTC_CAMERAS = tuple(
     camera.strip()
     for camera in os.getenv(
-        "WEBRTC_CAMERAS", os.getenv("VISION_CAMERAS", "cam3,webcam,dahua")
+        "WEBRTC_CAMERAS", os.getenv("VISION_CAMERAS", "cam3,dahua")
     ).split(",")
     if camera.strip()
 )
@@ -30,7 +30,7 @@ WEBRTC_PATHS = {
     for camera_id, separator, path in (
         item.strip().partition("=")
         for item in os.getenv(
-            "WEBRTC_PATHS", "cam3=cam3,webcam=webcam,dahua=dahuaclean"
+            "WEBRTC_PATHS", "cam3=cam3,dahua=dahuaclean"
         ).split(",")
     )
     if separator and camera_id and path

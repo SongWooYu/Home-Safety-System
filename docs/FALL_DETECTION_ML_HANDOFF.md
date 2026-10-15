@@ -1,5 +1,10 @@
 # Fall Detection ML / Vision Handoff
 
+> **2026-10-15 hardware override:** ABKO APC720 is retired. Camera Module 3 now
+> owns face enrollment and recognition. All later ABKO role references in this
+> historical handoff describe the pre-retirement configuration and must not be
+> used to recreate the active V4L2 path.
+
 > Project: `SongWooYu/Home-Safety-System`  
 > Updated: 2026-10-06  
 > Purpose: authoritative handoff for ChatGPT, Codex, coding agents, and future maintainers.  

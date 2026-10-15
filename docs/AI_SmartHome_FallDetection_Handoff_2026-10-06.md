@@ -1,5 +1,8 @@
 # AI 기반 스마트홈 · 카메라 낙상감지 프로젝트 인수인계 / 연구·개발 컨텍스트
 
+> **Historical hardware note (2026-10-15):** ABKO APC720 has been retired from the active system. Camera Module 3 now performs face enrollment and recognition; ABKO/V4L2 details below are retained only as experiment history.
+
+
 > 작성 기준일: 2026-10-06  
 > 목적: **새 ChatGPT 채팅에서 이 파일 하나를 업로드해도 지금까지의 연구·개발 맥락, 로컬 경로, 실험 결과, 설계 판단, 남은 작업을 최대한 그대로 이어가기 위한 인수인계 문서**
 >

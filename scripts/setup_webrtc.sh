@@ -31,9 +31,11 @@ if [[ ! -e /etc/default/smarthome-webrtc ]]; then
   install -m 0644 "$repo_dir/config/webrtc.env" /etc/default/smarthome-webrtc
 fi
 
-for camera_id in cam3 webcam dahua; do
+for camera_id in cam3 dahua; do
   systemctl disable --now "smarthome-webrtc-publisher@${camera_id}.service" 2>/dev/null || true
 done
+# Remove a publisher left by the retired ABKO configuration, if present.
+systemctl disable --now smarthome-webrtc-publisher@webcam.service 2>/dev/null || true
 rm -f /etc/systemd/system/smarthome-webrtc-publisher@.service
 systemctl daemon-reload
 systemctl enable smarthome-mediamtx.service

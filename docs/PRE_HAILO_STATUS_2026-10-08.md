@@ -1,5 +1,8 @@
 # Hailo 장착 전 비전·통합 상태
 
+> **Historical hardware note (2026-10-15):** ABKO APC720 has been retired from the active system. Camera Module 3 now performs face enrollment and recognition; ABKO/V4L2 details below are retained only as experiment history.
+
+
 기준일: 2026-10-08  
 기준 저장소: `/home/pi/Home-Safety-System`  
 비전 런타임 커밋: `73ed162`

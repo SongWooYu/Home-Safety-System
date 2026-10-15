@@ -39,15 +39,13 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
     def setUp(self):
         self.client = pi4_web.app.test_client()
 
-    def test_dashboard_embeds_three_direct_pi5_webrtc_players(self):
+    def test_dashboard_embeds_two_direct_pi5_webrtc_players(self):
         response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        for camera_id in ("cam3", "webcam"):
-            self.assertIn(
-                f'http://192.168.1.20:8889/{camera_id}?'.encode(), response.data
-            )
+        self.assertIn(b"http://192.168.1.20:8889/cam3?", response.data)
         self.assertIn(b"http://192.168.1.20:8889/dahuaclean?", response.data)
+        self.assertNotIn(b"/webcam?", response.data)
         self.assertNotIn(b"/vision/stream/", response.data)
         self.assertIn("시험 낙상 경보 발생".encode(), response.data)
         self.assertIn("낙상 경보 해제".encode(), response.data)
@@ -59,7 +57,7 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
 
     def test_health_checks_vision_api_and_webrtc_gateway(self):
         responses = [
-            FakeResponse({"status": "ok", "online_cameras": 3}),
+            FakeResponse({"status": "ok", "online_cameras": 2}),
             FakeResponse(),
         ]
         with patch.object(pi4_web.requests, "get", side_effect=responses) as request_get:
@@ -68,7 +66,7 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["connected"])
         self.assertTrue(response.get_json()["webrtc"])
-        self.assertEqual(response.get_json()["upstream"]["online_cameras"], 3)
+        self.assertEqual(response.get_json()["upstream"]["online_cameras"], 2)
         self.assertEqual(
             request_get.call_args_list,
             [

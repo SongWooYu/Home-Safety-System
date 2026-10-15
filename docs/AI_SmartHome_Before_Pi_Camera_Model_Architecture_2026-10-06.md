@@ -1,4 +1,7 @@
 # AI 스마트홈 낙상감지 — Raspberry Pi 진입 전 통합 정리
+
+> **Historical hardware note (2026-10-15):** ABKO APC720 has been retired from the active system. Camera Module 3 now performs face enrollment and recognition; ABKO/V4L2 details below are retained only as experiment history.
+
 > 기준일: 2026-10-06
 > 프로젝트: `SongWooYu/Home-Safety-System`
 > 목적: Mac 학습 결과, 최신 다중 seed 실험, 현재 GitHub 구현 상태, 3개 카메라 역할을 하나의 기준 문서로 정리한 뒤 Raspberry Pi 5 통합 단계로 넘어가기 위한 설계 기준

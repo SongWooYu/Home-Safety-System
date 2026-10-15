@@ -17,7 +17,7 @@ from .gru_numpy import NumpyFallEnsemble
 from .inference import NcnnPoseEstimator
 from .shadow_log import ShadowObservationLog
 from .temporal_fall import TemporalFallShadow
-from .sources import PiCameraSource, RtspSource, UsbCameraSource
+from .sources import PiCameraSource, RtspSource
 from .sources.base import CameraSource
 
 
@@ -92,6 +92,7 @@ class WorkerSnapshot:
     object_count: int
     detected_objects: dict[str, int]
     pose_enabled: bool
+    face_enabled: bool
     rule_mode: str
     pose_state: str
     fall_state: str
@@ -448,6 +449,7 @@ class CameraWorker:
                     clean_requested = self._clean_stream_clients > 0
 
                 if overlay_requested or clean_requested:
+                    source_shape = frame.shape
                     stream_frame = frame
                     if (
                         stream_frame.shape[1] != self.stream_width
@@ -472,7 +474,7 @@ class CameraWorker:
                     overlay_jpeg = None
                     if overlay_requested:
                         annotated = stream_frame.copy()
-                        self._draw_overlay(annotated)
+                        self._draw_overlay(annotated, source_shape)
                         ok, encoded = cv2.imencode(
                             ".jpg",
                             annotated,
@@ -898,21 +900,38 @@ class CameraWorker:
             )
         self.event_bus.publish_status(self.camera_id, self.status_dict())
 
-    def _draw_overlay(self, frame: np.ndarray) -> None:
+    def _draw_overlay(
+        self,
+        frame: np.ndarray,
+        source_shape: tuple[int, ...] | None = None,
+    ) -> None:
+        source_height, source_width = (source_shape or frame.shape)[:2]
+        scale_x = frame.shape[1] / max(source_width, 1)
+        scale_y = frame.shape[0] / max(source_height, 1)
+
+        def point(x: float, y: float) -> tuple[int, int]:
+            return (int(round(x * scale_x)), int(round(y * scale_y)))
+
+        def box(value: list[int] | tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+            x1, y1, x2, y2 = value
+            left, top = point(x1, y1)
+            right, bottom = point(x2, y2)
+            return left, top, right, bottom
+
         for pose in self._poses:
             keypoints = pose["keypoints"]
             for start, end in POSE_SKELETON:
                 if keypoints[start][2] < 0.25 or keypoints[end][2] < 0.25:
                     continue
-                start_point = (int(keypoints[start][0]), int(keypoints[start][1]))
-                end_point = (int(keypoints[end][0]), int(keypoints[end][1]))
+                start_point = point(keypoints[start][0], keypoints[start][1])
+                end_point = point(keypoints[end][0], keypoints[end][1])
                 cv2.line(frame, start_point, end_point, (255, 210, 70), 2)
             for x, y, confidence in keypoints:
                 if confidence >= 0.25:
-                    cv2.circle(frame, (int(x), int(y)), 3, (255, 230, 120), -1)
+                    cv2.circle(frame, point(x, y), 3, (255, 230, 120), -1)
 
         for detection in self._detections:
-            x1, y1, x2, y2 = detection["box"]
+            x1, y1, x2, y2 = box(detection["box"])
             confidence = detection["confidence"]
             label = detection["label"]
             color = (0, 220, 70) if label == "person" else (0, 185, 255)
@@ -928,7 +947,7 @@ class CameraWorker:
             )
 
         for face in self._faces:
-            x1, y1, x2, y2 = face["box"]
+            x1, y1, x2, y2 = box(face["box"])
             color = (255, 200, 40) if face["registered"] else (80, 80, 255)
             display_name = str(face["name"]) if face["registered"] else "미등록"
             label = f"{display_name} {face['similarity']:.2f}"
@@ -1166,6 +1185,8 @@ class CameraWorker:
 
                 pose_enabled=self.pose_enabled,
 
+                face_enabled=self.face_enabled,
+
                 rule_mode=self.rule_mode,
 
                 pose_state=(
@@ -1401,14 +1422,6 @@ class VisionPipeline:
         source_type = config["type"]
         if source_type == "picamera2":
             return PiCameraSource(int(config["width"]), int(config["height"]), int(config["fps"]))
-        if source_type == "v4l2":
-            return UsbCameraSource(
-                config["device"],
-                int(config["width"]),
-                int(config["height"]),
-                int(config["fps"]),
-                config.get("input_format", "MJPG"),
-            )
         if source_type == "rtsp":
             return RtspSource(
                 config.get("url", ""),
@@ -1448,7 +1461,7 @@ class VisionPipeline:
             raise RuntimeError(self.face_error or "얼굴 인식 기능을 사용할 수 없습니다.")
         worker = self.workers.get(camera_id)
         if worker is None or not worker.face_enrollment:
-            raise ValueError("얼굴 등록은 Camera Module 3 또는 웹캠만 사용할 수 있습니다.")
+            raise ValueError("얼굴 등록은 Camera Module 3에서만 사용할 수 있습니다.")
 
         frames: list[np.ndarray] = []
         for _ in range(5):

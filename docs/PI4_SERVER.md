@@ -124,7 +124,7 @@ Pi4 재부팅 후 자동 복구된다.
 ```dotenv
 VISION_API_URL=http://192.168.1.20:8080
 WEBRTC_BASE_URL=http://192.168.1.20:8889
-WEBRTC_CAMERAS=cam3,webcam,dahua
+WEBRTC_CAMERAS=cam3,dahua
 ```
 
 확인 경로:

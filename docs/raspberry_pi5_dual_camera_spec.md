@@ -1,5 +1,8 @@
 # Raspberry Pi 5 듀얼 카메라 사용 검증 사양서
 
+> **Historical hardware note (2026-10-15):** ABKO APC720 has been retired from the active system. Camera Module 3 now performs face enrollment and recognition; ABKO/V4L2 details below are retained only as experiment history.
+
+
 ## 1. 결론
 
 Raspberry Pi 5 + Raspberry Pi OS 환경에서 Raspberry Pi Camera Module 3와 ABKO APC720 USB 웹캠을 모두 정상 인식했다.

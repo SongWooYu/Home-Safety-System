@@ -42,7 +42,7 @@ AI HAT+의 Hailo-8은 정상 인식되고 pose HEF도 하드웨어에서 약 31 
 ```text
 Pi4 관제 브라우저
   Dahua -> MediaMTX RTSP source-on-demand -> WebRTC             (원본 H.264)
-  Cam3/Webcam -> Pi5 clean JPEG on-demand -> FFmpeg H.264 -> WebRTC
+  Cam3 -> Pi5 clean JPEG on-demand -> FFmpeg H.264 -> WebRTC
 
 Pi5 개발/전시 브라우저
   카메라 -> AI metadata -> 요청 중에만 overlay JPEG -> :8080
@@ -52,7 +52,7 @@ AI 경로
 ```
 
 Dahua clean 경로는 1920×1080 H.264 High Profile, 입력 표기 25 FPS/평균 15 FPS이며
-추가 FFmpeg 프로세스 없이 동작한다. Cam3/Webcam은 현재 원본 H.264 출력을 공유할
+추가 FFmpeg 프로세스 없이 동작한다. Cam3는 현재 원본 H.264 출력을 공유할
 수 없으므로 clean JPEG를 저지연 H.264로 변환하는 과도기 경로다.
 
 시청자가 없으면 Pi5는 JPEG 복사·오버레이·인코딩을 하지 않는다. MediaMTX publisher도

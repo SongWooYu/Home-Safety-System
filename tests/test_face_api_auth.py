@@ -12,7 +12,7 @@ class FakeWorker:
 class FakePipeline:
     def __init__(self):
         self.config = {"face_recognition": {"admin_token": "delete-secret"}}
-        self.workers = {"cam3": FakeWorker(), "webcam": FakeWorker()}
+        self.workers = {"cam3": FakeWorker()}
         self.face_registry = object()
         self.face_error = None
         self.enroll_calls = []

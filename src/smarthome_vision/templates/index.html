@@ -1617,7 +1617,7 @@ select{
         </h2>
 
         <div class="section-note">
-          ABKO APC720 · YuNet + SFace · 등록에는 관리 코드 불필요
+          Camera Module 3 · YuNet + SFace · 등록에는 관리 코드 불필요
         </div>
 
       </div>
@@ -1836,10 +1836,7 @@ const streamTimers =
 
 const cameraRoles = {
   cam3:
-    "보조 시야 · AI 비활성",
-
-  webcam:
-    "얼굴 인식 전용",
+    "얼굴 등록·인식 · 보조 시야",
 
   dahua:
     "주 낙상 분석 카메라"
@@ -2369,7 +2366,7 @@ function renderCamera(
       "Pose AI";
 
   }else if(
-    id === "webcam"
+    camera.face_enabled
   ){
 
     ai.className =

@@ -3,8 +3,8 @@ set -euo pipefail
 
 camera_id="${1:-}"
 case "$camera_id" in
-  cam3|webcam|dahua) ;;
-  *) echo "Usage: $0 {cam3|webcam|dahua}" >&2; exit 2 ;;
+  cam3|dahua) ;;
+  *) echo "Usage: $0 {cam3|dahua}" >&2; exit 2 ;;
 esac
 
 fps="${WEBRTC_FPS:-8}"

@@ -33,14 +33,15 @@ Do not replace it with the older single-seed `D_125_sqrt` model unless explicitl
 Dahua 192.168.1.64
   primary fall camera
 
-ABKO APC720
-  face enrollment / local face recognition
-
 Camera Module 3
+  face enrollment / local face recognition
   secondary view / optional verification
 ```
 
-Do not require Camera Module 3 agreement before raising a Dahua fall alert.
+The ABKO APC720 was retired from the active system on 2026-10-15. Do not
+reintroduce a V4L2 webcam path unless the user explicitly changes the hardware
+plan. Do not require Camera Module 3 agreement before raising a Dahua fall
+alert.
 
 ## Runtime constraints
 

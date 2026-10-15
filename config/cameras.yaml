@@ -138,8 +138,7 @@ cameras:
   # --------------------------------------------------
   # Camera Module 3
   #
-  # Secondary view.
-  # 현재 AI 연산하지 않음.
+  # Face enrollment / recognition station and secondary view.
   # --------------------------------------------------
   - id: cam3
 
@@ -151,37 +150,7 @@ cameras:
 
     enabled: true
 
-    ai_enabled: false
-
-    fall_detection: false
-
-    face_recognition: false
-
-    face_enrollment: false
-
-    width: 960
-    height: 540
-
-    # 화면용으로 15 FPS면 충분.
-    fps: 15
-
-
-  # --------------------------------------------------
-  # ABKO APC720
-  #
-  # Face station 전용.
-  # --------------------------------------------------
-  - id: webcam
-
-    label:
-      ABKO APC720 Webcam
-
-    type:
-      v4l2
-
-    enabled: true
-
-    ai_enabled: false
+    ai_enabled: true
 
     fall_detection: false
 
@@ -189,17 +158,10 @@ cameras:
 
     face_enrollment: true
 
-    device:
-      /dev/v4l/by-id/usb-SunplusIT_Inc_ABKO_APC720_HD_WEBCAM_N2020120301-video-index0
+    width: 960
+    height: 540
 
-    input_format:
-      MJPG
-
-    width: 1280
-    height: 720
-
-    # 장치는 30 FPS 가능하지만
-    # face station에는 15 FPS면 충분.
+    # 화면용으로 15 FPS면 충분.
     fps: 15
 
 

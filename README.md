@@ -1,16 +1,16 @@
 # Home Safety System
 
-Raspberry Pi 5의 세 카메라를 하나의 AI 비전 파이프라인으로 통합하고,
+Raspberry Pi 5의 Camera Module 3와 Dahua IP 카메라를 AI 비전 파이프라인으로 통합하고,
 Raspberry Pi 4가 MQTT·이벤트 저장·경보·최종 화면을 담당하는 졸업작품입니다.
 
 ## 현재 구성
 
-- Pi5 `192.168.1.20:8080`: Camera Module 3, ABKO 웹캠, Dahua RTSP의 개발용 분석 화면
+- Pi5 `192.168.1.20:8080`: Camera Module 3, Dahua RTSP의 개발용 분석 화면
 - Pi4 `192.168.1.10:1883`: MQTT 중앙 브로커
 - Pi4 `192.168.1.10:8081`: 최종 안전 상태와 경보 화면; 영상은 브라우저가 Pi5 WebRTC에 직접 연결
 - 사람/낙상 입력: Dahua YOLO11n-pose NCNN 320을 약 10 FPS로 실행
 - 낙상: rule fallback은 active, B76 3-seed GRU는 Quiet shadow로 검증 중
-- 얼굴: YuNet + SFace, 정면·좌측·우측 등록, 특징 벡터만 로컬 저장
+- 얼굴: Camera Module 3에서 YuNet + SFace, 정면·좌측·우측 등록, 특징 벡터만 로컬 저장
 
 ## 문서
 
@@ -21,6 +21,7 @@ Raspberry Pi 4가 MQTT·이벤트 저장·경보·최종 화면을 담당하는 
 - [Pi5 카메라·AI·MQTT 상세](docs/PI5_VISION.md)
 - [Pi5→브라우저 WebRTC 설치·성능·장애 대응](docs/WEBRTC_STREAMING.md)
 - [Pi5 듀얼 HDMI 전시 화면](docs/DUAL_DISPLAY.md)
+- [Canvas 없는 네이티브 전시 표시 결정](docs/NATIVE_EXHIBITION_DISPLAY_2026-10-15.md)
 - [얼굴 등록·인식·개인정보](docs/FACE_RECOGNITION.md)
 - [Pi4 clone 설치·기존 서버 마이그레이션](docs/PI4_SERVER.md)
 - [Pi4 다음 작업 체크리스트](docs/PI4_NEXT_STEPS.md)

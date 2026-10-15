@@ -1,5 +1,8 @@
 # Raspberry Pi 5 듀얼 HDMI 전시 화면
 
+> **2026-10-15 전환 안내:** 이 문서의 HDMI-A-2 Chromium 자동 실행 방식은 현재 `disabled/inactive`이며 최종 전시안이 아니다. HDMI-A-1 관리 UI와 HDMI-A-2 네이티브 Wayland/OpenGL 화면으로 전환하는 최신 결정은 [네이티브 전시 표시 결정](NATIVE_EXHIBITION_DISPLAY_2026-10-15.md)을 따른다.
+
+
 기준일: 2026-09-17
 
 ## 목적

@@ -2,7 +2,7 @@
 
 ## 목적
 
-서로 다른 세 카메라 인터페이스를 하나의 처리 결과와 MQTT 계약으로 통합한다.
+Camera Module 3와 Dahua RTSP를 하나의 처리 결과와 MQTT 계약으로 통합한다.
 영상 분석 결과를 개발 대시보드에서 검증한다. Pi4에는 MQTT로 작은 JSON
 상태·이벤트를 보내고, AI 오버레이 영상은 Pi5에서 H.264/WebRTC로 변환해
 전시 브라우저에 직접 전달한다.
@@ -12,10 +12,9 @@
 | 입력 | 수집 계층 | 입력 형식 | 현재 설정 |
 |---|---|---|---|
 | Camera Module 3 | Picamera2/libcamera | 센서 프레임을 Picamera2가 배열로 제공 | 960×540, 15 FPS |
-| ABKO APC720 | V4L2/OpenCV | 카메라에 MJPG 요청 후 OpenCV가 BGR로 디코딩 | 1280×720, 15 FPS 요청(실측 약 7.5) |
 | Dahua | RTSP/OpenCV/FFmpeg | 메인 스트림 압축 영상을 디코딩 | `subtype=0`, 실제 1920×1080 약 15 FPS 수집 |
 
-즉 Camera Module 3 자체를 웹캠처럼 “MJPEG 카메라”라고 부르지 않는다. 세 입력은
+Camera Module 3 자체를 웹캠처럼 “MJPEG 카메라”라고 부르지 않는다. 두 입력은
 수집 방식이 다르지만 분석 시점에는 모두 OpenCV BGR 배열이다. 개발 웹 화면으로
 보낼 때만 분석·오버레이가 끝난 프레임을 640×360, 15 FPS, JPEG 품질 70으로
 축소·압축해 multipart MJPEG로 전송한다. 캡처·AI 입력 해상도와 얼굴 등록용 원본
@@ -29,7 +28,7 @@
   -> Dahua의 새 프레임만 10 FPS로 pose 분석
   -> pose에서 person bbox와 17 keypoint 생성
   -> 사람별 tracking과 B76 GRU shadow 분석
-  -> ABKO는 별도 0.5 FPS로 face 분석
+  -> Camera Module 3는 별도 0.5 FPS로 face 분석
   -> rule/GRU 상태 추적
   -> 상태 변화 이벤트 + 주기 상태 MQTT 발행
   -> 박스/상태 오버레이

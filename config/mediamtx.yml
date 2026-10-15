@@ -36,12 +36,6 @@ paths:
     runOnDemandRestart: true
     runOnDemandStartTimeout: 10s
     runOnDemandCloseAfter: 10s
-  webcam:
-    source: publisher
-    runOnDemand: /home/pi/Home-Safety-System/scripts/publish_webrtc.sh webcam
-    runOnDemandRestart: true
-    runOnDemandStartTimeout: 10s
-    runOnDemandCloseAfter: 10s
   dahua:
     source: publisher
     runOnDemand: /home/pi/Home-Safety-System/scripts/publish_webrtc.sh dahua

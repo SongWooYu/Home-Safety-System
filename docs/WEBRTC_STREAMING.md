@@ -10,7 +10,7 @@ WebRTC만 표시하고, Pi5 `:8080` 개발/전시 화면을 실제로 열었을 
 
 ```text
 Dahua -> MediaMTX source-on-demand ---------------------------> WebRTC 브라우저
-Cam3/Webcam -> Pi5 clean JPEG on-demand -> FFmpeg H.264 ------> WebRTC 브라우저
+Cam3 -> Pi5 clean JPEG on-demand -> FFmpeg H.264 ------------> WebRTC 브라우저
 카메라 -> AI metadata -> Pi5 요청 중 overlay JPEG -----------> Pi5 :8080
 브라우저 <- HTML·상태·경보 API ------------------------------- Pi4 :8081
 ```
@@ -25,11 +25,11 @@ Cam3/Webcam -> Pi5 clean JPEG on-demand -> FFmpeg H.264 ------> WebRTC 브라우
 - 브라우저가 PC에서 실행되면 Pi4는 영상 경로에서 완전히 빠진다.
 - 브라우저가 Pi4에 연결된 모니터에서 실행되면 Pi4 브라우저는 H.264 수신과
   디코딩을 계속 담당하지만 Python 중계 부하는 사라진다.
-- Cam3/Webcam은 Pi5의 `libx264` 소프트웨어 인코딩을 사용한다.
+- Cam3는 Pi5의 `libx264` 소프트웨어 인코딩을 사용한다.
 - Dahua `dahuaclean`은 원본 H.264 pass-through라 Pi5 디코드·JPEG·재인코딩을 하지 않는다.
 - 시청자가 없으면 clean/overlay JPEG와 FFmpeg publisher를 실행하지 않는다.
 
-2026-09-17 기존 세 스트림 실측:
+2026-09-17 퇴역 전 세 스트림 역사적 실측:
 
 | 항목 | 값 |
 |---|---|
@@ -74,8 +74,8 @@ sudo ./pi4/scripts/install.sh
 ```dotenv
 VISION_API_URL=http://192.168.1.20:8080
 WEBRTC_BASE_URL=http://192.168.1.20:8889
-WEBRTC_CAMERAS=cam3,webcam,dahua
-WEBRTC_PATHS=cam3=cam3,webcam=webcam,dahua=dahuaclean
+WEBRTC_CAMERAS=cam3,dahua
+WEBRTC_PATHS=cam3=cam3,dahua=dahuaclean
 ```
 
 과거 `VISION_BASE_URL`, `VISION_CAMERAS`, `VISION_STREAM_FPS`가 남아 있어도
@@ -120,7 +120,7 @@ sudo systemctl restart smarthome-mediamtx.service
 ```bash
 systemctl is-active smarthome-mediamtx.service
 
-for camera_id in cam3 webcam dahuaclean; do
+for camera_id in cam3 dahuaclean; do
   ffprobe -v error -rtsp_transport tcp -select_streams v:0 \
     -show_entries stream=codec_name,profile,width,height,r_frame_rate \
     -of default=noprint_wrappers=1 \
