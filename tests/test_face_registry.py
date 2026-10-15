@@ -5,11 +5,13 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 import numpy as np
 
 from smarthome_vision.events import EventBus
 from smarthome_vision.face_registry import FaceRegistry, FaceRegistryError
+from smarthome_vision.pipeline import draw_face_label
 
 
 def fake_registry(directory: Path) -> FaceRegistry:
@@ -97,6 +99,35 @@ class FaceRegistryTest(unittest.TestCase):
             registry = fake_registry(Path(temp))
             with self.assertRaises(FaceRegistryError):
                 registry.enroll("테스트", [], "up")
+
+    def test_ascii_face_label_bypasses_freetype_renderer(self):
+        frame = np.zeros((80, 240, 3), dtype=np.uint8)
+        face_font = Mock()
+
+        draw_face_label(
+            frame,
+            "songwoo 0.67",
+            (10, 45),
+            (255, 200, 40),
+            face_font,
+        )
+
+        face_font.putText.assert_not_called()
+        self.assertGreater(np.count_nonzero(frame), 0)
+
+    def test_non_ascii_face_label_uses_freetype_renderer(self):
+        frame = np.zeros((80, 240, 3), dtype=np.uint8)
+        face_font = Mock()
+
+        draw_face_label(
+            frame,
+            "홍길동 0.67",
+            (10, 45),
+            (255, 200, 40),
+            face_font,
+        )
+
+        face_font.putText.assert_called_once()
 
     def test_events_have_unique_ids_for_qos_deduplication(self):
         bus = EventBus({"enabled": False})

@@ -32,6 +32,55 @@ POSE_SKELETON = (
 )
 
 
+def draw_face_label(
+    frame: np.ndarray,
+    label: str,
+    origin: tuple[int, int],
+    color: tuple[int, int, int],
+    face_font: Any | None,
+) -> None:
+    """Use OpenCV for ASCII labels and FreeType only for non-ASCII text."""
+    if label.isascii():
+        cv2.putText(
+            frame,
+            label,
+            origin,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            color,
+            2,
+        )
+        return
+
+    if face_font is not None:
+        try:
+            face_font.putText(
+                frame,
+                label,
+                origin,
+                21,
+                color,
+                1,
+                cv2.LINE_AA,
+                False,
+            )
+            return
+        except cv2.error:
+            pass
+
+    fallback = "UNKNOWN" if label.startswith("미등록") else "KNOWN"
+    score = label.rsplit(" ", 1)[-1]
+    cv2.putText(
+        frame,
+        f"{fallback} {score}",
+        origin,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        color,
+        2,
+    )
+
+
 @dataclass
 class WorkerSnapshot:
     camera_id: str
@@ -881,38 +930,12 @@ class CameraWorker:
             label = f"{display_name} {face['similarity']:.2f}"
             label_origin = (x1, min(frame.shape[0] - 8, y2 + 26))
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            if self._face_font is not None:
-                try:
-                    self._face_font.putText(
-                        frame,
-                        label,
-                        label_origin,
-                        21,
-                        color,
-                        1,
-                        cv2.LINE_AA,
-                        False,
-                    )
-                    continue
-                except cv2.error:
-                    pass
-            fallback = (
-                label
-                if label.isascii()
-                else (
-                    f"KNOWN {face['similarity']:.2f}"
-                    if face["registered"]
-                    else f"UNKNOWN {face['similarity']:.2f}"
-                )
-            )
-            cv2.putText(
+            draw_face_label(
                 frame,
-                fallback,
+                label,
                 label_origin,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
                 color,
-                2,
+                self._face_font,
             )
 
         status = "AI ON" if self.ai_enabled else "MONITOR"
