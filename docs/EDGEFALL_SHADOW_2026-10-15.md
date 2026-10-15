@@ -32,11 +32,59 @@ HEF SHA-256:
 e19856699ed47cf866d23265827f960b263f287dab5e54e82c7ce37e12525a2d
 
 Temporal profile:
-edgefallkit-hailo8-yolov8s-pose-v1
+edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v1
 ```
 
 The HEF and generated native library are kept under the Git-ignored `runtime/`
 directory. No upstream model binary is committed.
+
+## First live ADL findings and strict policy correction
+
+The first operator check found the following behavior:
+
+- ordinary movement and sitting: no fall;
+- slow bending: no fall;
+- fast bending: false fall;
+- lying down: usually classified as a fall.
+
+Code inspection found two causes in the pinned Raspberry Pi Hailo adapter.
+First, hip Y was passed to a model trained on normalized `0..1` coordinates as
+a `0..640` pixel value. This placed the temporal classifier far outside its
+training distribution. Second, a temporal-positive result could transition
+directly from `normal` to `fallen`, without any preceding rapid descent or
+persistent horizontal posture.
+
+The Home-Safety-System build now applies a reproducible local policy patch:
+
+1. normalize hip Y before both motion thresholds and the temporal MLP;
+2. never allow temporal output alone to originate a fall;
+3. arm only after rapid downward motion plus a horizontal cue;
+4. confirm only when temporal-positive, horizontal torso **and** box, minimum
+   hip-drop distance, evidence count and confirmation time all agree.
+
+This is a stricter derivative policy, so upstream EdgeFallKit accuracy figures
+must not be claimed for it. It remains Shadow-only and sends no MQTT alarm
+until staged falls and ADL are measured again.
+
+### Operator retest
+
+Open `http://<pi5-ip>:8080`, keep the Dahua overlay visible, and judge only the
+`EdgeFall` state/profile. The older Rule and B76 GRU fields are comparison
+outputs and may disagree.
+
+Run each action five times after the profile shown by the API/dashboard becomes
+`edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v1`:
+
+- ordinary walking and standing;
+- sitting on a chair;
+- slow bend and return upright;
+- fast bend and return upright;
+- deliberate slow lie-down;
+- staged rapid fall with the existing mat and assistant.
+
+The first five actions must produce no `fallen` transition. A staged fall must
+move through `suspected` to `fallen`; otherwise this stricter policy is trading
+too much recall for false-positive reduction and must remain Shadow-only.
 
 ## Why this works with HailoRT 4.23
 

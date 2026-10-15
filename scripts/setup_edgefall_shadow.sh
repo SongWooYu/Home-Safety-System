@@ -95,16 +95,36 @@ ACTUAL=$(git -C "$SOURCE" rev-parse HEAD)
 }
 
 OUT="$ROOT/runtime/native/libedgefall_shadow.so"
+BUILD="$ROOT/runtime/build/edgefall_shadow"
 mkdir -p "$(dirname "$OUT")"
+mkdir -p "$BUILD"
+
+# Build from a private, reproducible copy.  The upstream checkout stays clean
+# and the Home-Safety-System policy patch is always applied from Git.
+cp "$SOURCE/platforms/rpi-hailo/src/tracker_hailo.h" "$BUILD/"
+cp "$SOURCE/platforms/rpi-hailo/src/tracker_hailo.cpp" "$BUILD/"
+cp "$SOURCE/platforms/jetson/main/pose.h" "$BUILD/"
+cp "$SOURCE/platforms/jetson/main/pose.cpp" "$BUILD/"
+cp "$SOURCE/platforms/jetson/main/fall_detector.h" "$BUILD/"
+cp "$SOURCE/platforms/jetson/main/fall_detector.cpp" "$BUILD/"
+cp "$SOURCE/platforms/jetson/main/temporal_classifier.h" "$BUILD/"
+cp "$SOURCE/platforms/jetson/main/temporal_classifier.cpp" "$BUILD/"
+cp "$SOURCE/platforms/jetson/main/temporal_model_weights.h" "$BUILD/"
+cp "$SOURCE/platforms/jetson/main/temporal_model_weights_hailo.h" "$BUILD/"
+cp "$SOURCE/platforms/jetson/main/temporal_model_weights_yolo11m.h" "$BUILD/"
+cp "$SOURCE/platforms/jetson/main/temporal_model_weights_yolov8s_int8.h" "$BUILD/"
+cp "$SOURCE/platforms/jetson/main/temporal_model_weights_yolov8m_int8.h" "$BUILD/"
+
+patch --batch --forward -d "$BUILD" -p1 \
+    < "$ROOT/native/edgefall_shadow/strict_confirmation.patch"
 
 c++ -std=c++17 -O3 -DNDEBUG -fPIC -shared \
-    -I"$SOURCE/platforms/rpi-hailo/src" \
-    -I"$SOURCE/platforms/jetson/main" \
+    -I"$BUILD" \
     "$ROOT/native/edgefall_shadow/edgefall_c_api.cpp" \
-    "$SOURCE/platforms/rpi-hailo/src/tracker_hailo.cpp" \
-    "$SOURCE/platforms/jetson/main/pose.cpp" \
-    "$SOURCE/platforms/jetson/main/fall_detector.cpp" \
-    "$SOURCE/platforms/jetson/main/temporal_classifier.cpp" \
+    "$BUILD/tracker_hailo.cpp" \
+    "$BUILD/pose.cpp" \
+    "$BUILD/fall_detector.cpp" \
+    "$BUILD/temporal_classifier.cpp" \
     -o "$OUT"
 
 echo "Built $OUT"

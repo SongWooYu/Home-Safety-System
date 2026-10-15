@@ -1,0 +1,57 @@
+diff --git a/tracker_hailo.cpp b/tracker_hailo.cpp
+--- a/tracker_hailo.cpp
++++ b/tracker_hailo.cpp
+@@ -29,7 +29,12 @@ FallObservation observationFrom(const Track&t,double ts){
+   const float hy=mid(t.pose,jetson_fall::Joint::LeftHip,jetson_fall::Joint::RightHip,true);
+   const float sx=mid(t.pose,jetson_fall::Joint::LeftShoulder,jetson_fall::Joint::RightShoulder,false);
+   const float sy=mid(t.pose,jetson_fall::Joint::LeftShoulder,jetson_fall::Joint::RightShoulder,true);
+-  o.hip_y=hy; o.torso_angle_deg=std::atan2(std::abs(sx-hx),std::abs(sy-hy))*180.f/3.14159265f;
++  // Pose is constructed in a fixed 640x640 inference space, while both the
++  // detector thresholds and temporal model were trained on normalized hip Y.
++  // Passing pixels here made a normal 0.5 input become roughly 320 and put
++  // every temporal prediction far outside its training distribution.
++  constexpr float kInferenceHeight = 640.0f;
++  o.hip_y=hy/kInferenceHeight; o.torso_angle_deg=std::atan2(std::abs(sx-hx),std::abs(sy-hy))*180.f/3.14159265f;
+   o.bbox_aspect_ratio=t.box.h>1e-6f?t.box.w/t.box.h:0; return o;
+ }
+ std::vector<Track*> Tracker::update(const std::vector<Detection>& ds,double ts){
+diff --git a/fall_detector.cpp b/fall_detector.cpp
+--- a/fall_detector.cpp
++++ b/fall_detector.cpp
+@@ -163,13 +163,5 @@ FallOutput FallDetector::update(const FallObservation& o) {
+             switch (state_) {
+                 case FallState::Normal:
+-                    if (!cooldown && o.temporal_available && o.temporal_positive) {
+-                        state_ = FallState::Fallen;
+-                        recovery_since_sec_ = -1.0;
+-                        cooldown_until_sec_ = o.timestamp_sec + config_.cooldown_sec;
+-                        ++event_id_;
+-                        out.fall_event = true;
+-                        break;
+-                    }
+                     // Horizontal posture alone is not a fall: sleeping,
+                     // push-ups, and a deliberate lie-down can look identical.
+                     // Arm only on rapid descent plus a horizontal-posture cue.
+@@ -187,18 +179,13 @@ FallOutput FallDetector::update(const FallObservation& o) {
+                     break;
+ 
+                 case FallState::Suspected:
+-                    if (!cooldown && o.temporal_available && o.temporal_positive) {
+-                        state_ = FallState::Fallen;
+-                        recovery_since_sec_ = -1.0;
+-                        cooldown_until_sec_ = o.timestamp_sec + config_.cooldown_sec;
+-                        ++event_id_;
+-                        out.fall_event = true;
+-                        break;
+-                    }
+                     if (lying && enough_evidence) {
+                         last_strong_evidence_sec_ = o.timestamp_sec;
+                     }
+-                    if (!config_.temporal_confirmation_required && motion_triggered_ && lying && enough_evidence &&
++                    if (!cooldown &&
++                        (!config_.temporal_confirmation_required ||
++                         (o.temporal_available && o.temporal_positive)) &&
++                        motion_triggered_ && lying && enough_evidence &&
+                         max_drop_distance_ >= config_.hip_drop_distance_threshold &&
+                         o.timestamp_sec - suspected_since_sec_ >= config_.confirmation_sec) {
+                         state_ = FallState::Fallen;

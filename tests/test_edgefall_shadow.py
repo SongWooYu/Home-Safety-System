@@ -15,6 +15,30 @@ LIBRARY = os.environ.get(
 
 @unittest.skipUnless(os.path.isfile(LIBRARY), "EdgeFall shadow library is not built")
 class EdgeFallShadowTest(unittest.TestCase):
+    @staticmethod
+    def _pose(
+        *,
+        hip_y: float,
+        horizontal: bool,
+        box: list[float] | None = None,
+    ) -> dict[str, object]:
+        keypoints = [[320.0, hip_y, 0.9] for _ in range(17)]
+        if horizontal:
+            keypoints[5] = [220.0, hip_y - 8.0, 0.9]
+            keypoints[6] = [240.0, hip_y - 8.0, 0.9]
+            keypoints[11] = [400.0, hip_y, 0.9]
+            keypoints[12] = [420.0, hip_y, 0.9]
+        else:
+            keypoints[5] = [300.0, hip_y - 160.0, 0.9]
+            keypoints[6] = [340.0, hip_y - 160.0, 0.9]
+            keypoints[11] = [300.0, hip_y, 0.9]
+            keypoints[12] = [340.0, hip_y, 0.9]
+        return {
+            "confidence": 0.9,
+            "box": box or [200.0, 80.0, 440.0, 600.0],
+            "keypoints": keypoints,
+        }
+
     def test_accepts_hailo_pose_contract_and_keeps_mqtt_outside_library(self):
         pose = {
             "confidence": 0.9,
@@ -29,6 +53,64 @@ class EdgeFallShadowTest(unittest.TestCase):
         self.assertEqual(tracks[0]["state"], "normal")
         self.assertTrue(tracks[0]["visible"])
         self.assertIn("temporal_probability", tracks[0])
+        self.assertGreaterEqual(tracks[0]["hip_y"], 0.0)
+        self.assertLessEqual(tracks[0]["hip_y"], 1.0)
+
+    def test_profile_identifies_strict_motion_policy(self):
+        with EdgeFallShadow(LIBRARY) as shadow:
+            self.assertEqual(
+                shadow.profile,
+                "edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v1",
+            )
+
+    def test_static_lying_posture_cannot_originate_fall(self):
+        pose = self._pose(
+            hip_y=390.0,
+            horizontal=True,
+            box=[70.0, 250.0, 570.0, 450.0],
+        )
+        states: list[str] = []
+        events: list[bool] = []
+        with EdgeFallShadow(LIBRARY) as shadow:
+            for frame in range(90):
+                tracks = shadow.update([pose], 640, 640, frame / 15.0)
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+
+        self.assertEqual(set(states), {"normal"})
+        self.assertFalse(any(events))
+
+    def test_fast_bend_without_horizontal_box_cannot_confirm_fall(self):
+        states: list[str] = []
+        events: list[bool] = []
+        with EdgeFallShadow(LIBRARY) as shadow:
+            for frame in range(20):
+                tracks = shadow.update(
+                    [self._pose(hip_y=330.0, horizontal=False)],
+                    640,
+                    640,
+                    frame / 15.0,
+                )
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+            for frame in range(20, 70):
+                tracks = shadow.update(
+                    [
+                        self._pose(
+                            hip_y=430.0,
+                            horizontal=True,
+                            box=[220.0, 120.0, 420.0, 600.0],
+                        )
+                    ],
+                    640,
+                    640,
+                    frame / 15.0,
+                )
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+
+        self.assertNotIn("fallen", states)
+        self.assertFalse(any(events))
 
 
 if __name__ == "__main__":
