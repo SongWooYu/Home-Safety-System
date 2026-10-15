@@ -19,8 +19,9 @@ change the active Rule/GRU alarm path.
 source. It normalizes Hailo hip Y to the temporal model's `0..1` coordinate
 contract and prevents a temporal-positive frame from creating a fall by
 itself. The normal path requires rapid descent followed by horizontal posture,
-sufficient hip drop and temporal confirmation. `strict-motion-v2` also has a
-high-specificity strong-impact path for a staged fall that becomes occluded or
-gets a new track ID before temporal confirmation: speed `>= 0.75/s`, normalized
-hip drop `>= 0.05`, torso angle `>= 65°`, and box aspect ratio `>= 1.50` must
-all occur together. The bridge remains Shadow-only and never publishes MQTT.
+sufficient hip drop and temporal confirmation. `windowed-impact-v3` also has a
+high-specificity staged-impact path: a rapid descent (speed `>= 0.50/s` and
+normalized hip drop `>= 0.04`) must be followed, within the existing 1.5-second
+candidate window, by a horizontal final pose (torso angle `>= 65°` and box
+aspect ratio `>= 1.50`). The cues do not have to peak on the same Hailo frame.
+The bridge remains Shadow-only and never publishes MQTT.

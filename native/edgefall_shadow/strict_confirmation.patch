@@ -1,7 +1,7 @@
 diff --git a/tracker_hailo.cpp b/tracker_hailo.cpp
 --- a/tracker_hailo.cpp
 +++ b/tracker_hailo.cpp
-@@ -32 +32,6 @@ FallObservation observationFrom(const Track&t,double ts){
+@@ -32 +32,6 @@
 -  o.hip_y=hy; o.torso_angle_deg=std::atan2(std::abs(sx-hx),std::abs(sy-hy))*180.f/3.14159265f;
 +  // Pose is constructed in a fixed 640x640 inference space, while both the
 +  // detector thresholds and temporal model were trained on normalized hip Y.
@@ -12,7 +12,7 @@ diff --git a/tracker_hailo.cpp b/tracker_hailo.cpp
 diff --git a/fall_detector.cpp b/fall_detector.cpp
 --- a/fall_detector.cpp
 +++ b/fall_detector.cpp
-@@ -165,8 +164,0 @@ FallOutput FallDetector::update(const FallObservation& o) {
+@@ -165,8 +164,0 @@
 -                    if (!cooldown && o.temporal_available && o.temporal_positive) {
 -                        state_ = FallState::Fallen;
 -                        recovery_since_sec_ = -1.0;
@@ -21,37 +21,54 @@ diff --git a/fall_detector.cpp b/fall_detector.cpp
 -                        out.fall_event = true;
 -                        break;
 -                    }
-@@ -185,0 +178,18 @@ FallOutput FallDetector::update(const FallObservation& o) {
-+                        // A staged fall can become occluded by the bed and
-+                        // receive a new track ID before temporal confirmation.
-+                        // Confirm only an exceptionally strong single-frame
-+                        // impact signature; ordinary bends fail the required
-+                        // horizontal box and deliberate slow lie-downs fail
-+                        // the speed/drop thresholds.
-+                        const bool strong_impact =
-+                            hip_speed >= 0.75f &&
-+                            max_drop_distance_ >= 0.05f &&
+@@ -182 +173,0 @@
+-                        last_strong_evidence_sec_ = lying ? o.timestamp_sec : -1.0;
+@@ -185,0 +177,19 @@
++                        // At roughly 10 FPS, the downward impact and the final
++                        // horizontal box normally peak on adjacent samples.
++                        // Remember the strong descent for this candidate
++                        // instead of requiring every cue on one exact frame.
++                        const bool strong_motion =
++                            hip_speed >= 0.50f &&
++                            max_drop_distance_ >= 0.04f;
++                        last_strong_evidence_sec_ = strong_motion
++                            ? o.timestamp_sec : -1.0;
++                        const bool impact_posture =
 +                            o.torso_angle_deg >= 65.0f &&
 +                            o.bbox_aspect_ratio >= 1.50f;
-+                        if (strong_impact) {
++                        if (strong_motion && impact_posture) {
 +                            state_ = FallState::Fallen;
 +                            recovery_since_sec_ = -1.0;
 +                            cooldown_until_sec_ = o.timestamp_sec + config_.cooldown_sec;
 +                            ++event_id_;
 +                            out.fall_event = true;
 +                        }
-@@ -190,8 +199,0 @@ FallOutput FallDetector::update(const FallObservation& o) {
+@@ -189,2 +199,13 @@
+-                case FallState::Suspected:
 -                    if (!cooldown && o.temporal_available && o.temporal_positive) {
--                        state_ = FallState::Fallen;
--                        recovery_since_sec_ = -1.0;
--                        cooldown_until_sec_ = o.timestamp_sec + config_.cooldown_sec;
--                        ++event_id_;
--                        out.fall_event = true;
++                case FallState::Suspected: {
++                    if (hip_speed >= 0.50f && max_drop_distance_ >= 0.04f) {
++                        last_strong_evidence_sec_ = o.timestamp_sec;
++                    }
++                    const bool impact_posture =
++                        o.torso_angle_deg >= 65.0f &&
++                        o.bbox_aspect_ratio >= 1.50f;
++                    const bool windowed_impact =
++                        last_strong_evidence_sec_ >= 0.0 &&
++                        o.timestamp_sec - last_strong_evidence_sec_ <=
++                            config_.suspected_timeout_sec &&
++                        impact_posture;
++                    if (!cooldown && windowed_impact) {
+@@ -196,6 +217,4 @@
 -                        break;
 -                    }
-@@ -201 +203,4 @@ FallOutput FallDetector::update(const FallObservation& o) {
+-                    if (lying && enough_evidence) {
+-                        last_strong_evidence_sec_ = o.timestamp_sec;
+-                    }
 -                    if (!config_.temporal_confirmation_required && motion_triggered_ && lying && enough_evidence &&
-+                    if (!cooldown &&
++                    } else if (!cooldown &&
 +                        (!config_.temporal_confirmation_required ||
 +                         (o.temporal_available && o.temporal_positive)) &&
 +                        motion_triggered_ && lying && enough_evidence &&
+@@ -218,0 +238 @@
++                }

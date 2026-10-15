@@ -56,11 +56,11 @@ class EdgeFallShadowTest(unittest.TestCase):
         self.assertGreaterEqual(tracks[0]["hip_y"], 0.0)
         self.assertLessEqual(tracks[0]["hip_y"], 1.0)
 
-    def test_profile_identifies_strict_motion_policy(self):
+    def test_profile_identifies_windowed_impact_policy(self):
         with EdgeFallShadow(LIBRARY) as shadow:
             self.assertEqual(
                 shadow.profile,
-                "edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v2",
+                "edgefallkit-hailo8-yolov8s-pose-v1+windowed-impact-v3",
             )
 
     def test_static_lying_posture_cannot_originate_fall(self):
@@ -142,6 +142,57 @@ class EdgeFallShadowTest(unittest.TestCase):
             events.append(tracks[0]["fall_event"])
 
         self.assertEqual(states[-1], "fallen")
+        self.assertTrue(events[-1])
+
+    def test_rapid_drop_then_horizontal_posture_confirms_in_same_window(self):
+        states: list[str] = []
+        events: list[bool] = []
+        with EdgeFallShadow(LIBRARY) as shadow:
+            for frame in range(20):
+                tracks = shadow.update(
+                    [self._pose(hip_y=330.0, horizontal=False)],
+                    640,
+                    640,
+                    frame / 15.0,
+                )
+                states.append(tracks[0]["state"])
+                events.append(tracks[0]["fall_event"])
+
+            # The impact and final lying box normally peak on adjacent Hailo
+            # samples, not on one exact frame.  Arm on the rapid drop first.
+            tracks = shadow.update(
+                [
+                    self._pose(
+                        hip_y=360.0,
+                        horizontal=True,
+                        box=[160.0, 170.0, 480.0, 570.0],
+                    )
+                ],
+                640,
+                640,
+                20 / 15.0,
+            )
+            states.append(tracks[0]["state"])
+            events.append(tracks[0]["fall_event"])
+
+            # On the next sample, speed can already be low while the person
+            # box has become fully horizontal.  The same candidate confirms.
+            tracks = shadow.update(
+                [
+                    self._pose(
+                        hip_y=365.0,
+                        horizontal=True,
+                        box=[70.0, 250.0, 570.0, 450.0],
+                    )
+                ],
+                640,
+                640,
+                21 / 15.0,
+            )
+            states.append(tracks[0]["state"])
+            events.append(tracks[0]["fall_event"])
+
+        self.assertEqual(states[-2:], ["suspected", "fallen"])
         self.assertTrue(events[-1])
 
     def test_slow_deliberate_lie_down_stays_normal(self):

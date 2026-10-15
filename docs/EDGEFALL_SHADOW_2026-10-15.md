@@ -32,7 +32,7 @@ HEF SHA-256:
 e19856699ed47cf866d23265827f960b263f287dab5e54e82c7ce37e12525a2d
 
 Temporal profile:
-edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v2
+edgefallkit-hailo8-yolov8s-pose-v1+windowed-impact-v3
 ```
 
 The HEF and generated native library are kept under the Git-ignored `runtime/`
@@ -61,9 +61,11 @@ The Home-Safety-System build now applies a reproducible local policy patch:
 3. arm only after rapid downward motion plus a horizontal cue;
 4. normally confirm only when temporal-positive, horizontal torso **and** box,
    minimum hip-drop distance, evidence count and confirmation time all agree;
-5. additionally confirm an exceptionally strong impact before track loss when
-   speed is at least `0.75/s`, normalized hip drop is at least `0.05`, torso
-   angle is at least `65°`, and box aspect ratio is at least `1.50`.
+5. additionally confirm a staged impact when rapid descent (speed at least
+   `0.50/s` and normalized hip drop at least `0.04`) is followed within the
+   same 1.5-second candidate window by a horizontal final pose (torso angle at
+   least `65°` and box aspect ratio at least `1.50`). The motion and posture
+   cues do not have to peak on the same Hailo frame.
 
 This is a stricter derivative policy, so upstream EdgeFallKit accuracy figures
 must not be claimed for it. It remains Shadow-only and sends no MQTT alarm
@@ -76,7 +78,7 @@ Open `http://<pi5-ip>:8080`, keep the Dahua overlay visible, and judge only the
 outputs and may disagree.
 
 Run each action five times after the profile shown by the API/dashboard becomes
-`edgefallkit-hailo8-yolov8s-pose-v1+strict-motion-v2`:
+`edgefallkit-hailo8-yolov8s-pose-v1+windowed-impact-v3`:
 
 - ordinary walking and standing;
 - sitting on a chair;
@@ -97,9 +99,30 @@ The learned temporal probability peaked around `0.17`, far below its frozen
 `0.75` threshold for three consecutive evaluations. One clear attempt still
 showed strong geometry (`1.99/s` hip speed, `0.062` hip drop, `68°` torso,
 `1.67` aspect ratio), but the person was reassigned from track `#1` to `#2`
-before confirmation. Lowering the learned threshold would also admit observed
-ADL false positives, so strict-motion-v2 adds only the high-specificity
-strong-impact path described above. It remains Shadow-only pending live retest.
+before confirmation. Track IDs are tracker identities, not a count of physical
+people; one person can receive a new ID after large motion or occlusion.
+
+### Third staged-fall finding and windowed-impact-v3
+
+The next live retest kept one physical person and one EdgeFall track (`#4`)
+through all four staged attempts. Every attempt transitioned
+`normal -> suspected -> normal`; none reached `fallen`. The transition samples
+were:
+
+| Time (KST) | Hip speed | Hip drop | Torso | Box aspect |
+| --- | ---: | ---: | ---: | ---: |
+| 22:52:54 | 0.6206/s | 0.0743 | 57.40° | 0.7113 |
+| 22:53:01 | 0.2524/s | 0.0692 | 88.27° | 1.0754 |
+| 22:53:05 | 0.3040/s | 0.0284 | 60.19° | 0.7026 |
+| 22:53:09 | 0.5293/s | 0.0425 | 85.95° | 2.0583 |
+
+This proves that tracking/person count was not the current failure. The
+single-frame v2 gate was too narrow: downward speed/drop and the final
+horizontal box peak on different samples at roughly 10 FPS. The v3 gate keeps
+the strict two-part evidence but joins those parts over the already bounded
+1.5-second candidate window. Slow lie-down, static lying and fast bending
+without a horizontal person box remain negative regression cases. The v3 path
+is still Shadow-only and cannot publish MQTT or operate the Pi4 alarm.
 
 ## Why this works with HailoRT 4.23
 
