@@ -22,7 +22,6 @@
   .label { font-size:12px; color:#999; }
   .value { font-size:26px; font-weight:600; margin-top:4px; }
   .time { font-size:11px; color:#666; margin-top:6px; }
-  /* 그래프 상자: 높이를 고정해서 갱신할 때 페이지 길이가 안 바뀌게 함 */
   #chartBox { position:relative; height:320px; background:#2a2a2a; border-radius:10px; padding:10px; margin-top:20px; }
 </style>
 </head>
@@ -37,10 +36,24 @@ let META = { rooms: [], metrics: [] };
 let METRIC_BY_ID = {};
 
 const SHOW_ROOMS = ["entrance", "livingroom", "kitchen", "bathroom"];
+
+// 화면에 안 띄울 센서 항목 (DB에는 남아 있음)
+const HIDE_METRICS = ["distance", "presence"];
+
+// 방별로 안 띄울 기기 (부엌 조명은 부저로 교체됨)
+const HIDE_DEVICES = { kitchen: ["light"] };
+
+// 기기 기본 이름
 const DEVICE_NAMES = { light:"조명", aircon:"에어컨", curtain:"커튼", fan:"환풍기", alarm:"경보" };
+
+// 방별로 다르게 부를 이름
+const DEVICE_NAMES_BY_ROOM = {
+  kitchen: { alarm: "부저" }
+};
+
 const DEVICE_ORDER = ["light", "aircon", "curtain", "fan", "alarm"];
 
-let lastCardsHtml = "";   // 이전에 그린 카드 내용 (같으면 다시 안 그림)
+let lastCardsHtml = "";
 
 async function loadMeta() {
   const res = await fetch("/api/meta");
@@ -57,19 +70,29 @@ function fmtShort(ts) {
   return new Date(ts).toLocaleString("ko-KR", { hour:"2-digit", minute:"2-digit" });
 }
 
+function deviceName(room, device) {
+  const byRoom = DEVICE_NAMES_BY_ROOM[room];
+  if (byRoom && byRoom[device]) return byRoom[device];
+  return DEVICE_NAMES[device] || device;
+}
+
 function sensorCard(s) {
+  if (HIDE_METRICS.includes(s.metric)) return "";
   const m = METRIC_BY_ID[s.metric];
   if (!m) return "";
   let cls = "", val = s.value;
   if (s.metric === "door") { val = s.value === "CLOSED" ? "닫힘" : "열림"; if (s.value === "OPEN") cls = "open"; }
   else if (s.metric === "gas") { val = s.value === "ON" ? "감지!" : "정상"; if (s.value === "ON") cls = "alert"; }
-  else if (m.numeric) { val = Number(s.value).toFixed(s.metric === "humidity" || s.metric === "brightness" ? 0 : 1) + m.unit; }
+  else if (m.numeric) { val = Number(s.value).toFixed(s.metric === "humidity" || s.metric === "brightness" || s.metric === "gas_level" ? 0 : 1) + m.unit; }
   else if (s.value === "ON") cls = "on";
   return `<div class="card ${cls}"><div class="label">${m.name}</div><div class="value">${val}</div><div class="time">${fmtDateTime(s.ts)}</div></div>`;
 }
 
 function commandCard(c) {
-  const name = DEVICE_NAMES[c.device] || c.device;
+  const hidden = HIDE_DEVICES[c.room];
+  if (hidden && hidden.includes(c.device)) return "";
+
+  const name = deviceName(c.room, c.device);
   let cls = "", val;
   if (c.device === "curtain") { val = c.value === "OPEN" ? "열림" : "닫힘"; if (c.value === "OPEN") cls = "open"; }
   else {
@@ -102,14 +125,14 @@ async function loadCards() {
     html += `</div></div>`;
   }
 
-  // 내용이 바뀌었을 때만 다시 그리기
   if (html !== lastCardsHtml) {
     document.getElementById("rooms").innerHTML = html;
     lastCardsHtml = html;
   }
 }
 
-const COLORS = { livingroom:"#f87171", kitchen:"#fb923c", bathroom:"#facc15" };
+// 그래프 선 색: 거실=빨강, 화장실=파랑, 부엌=초록
+const COLORS = { livingroom:"#f87171", bathroom:"#60a5fa", kitchen:"#4ade80" };
 let chart = null;
 
 async function loadChart() {
@@ -130,7 +153,6 @@ async function loadChart() {
     borderColor: s.color, borderDash: s.dash, yAxisID: s.axis, tension:0.3, pointRadius:0
   })).filter((_, i) => results[i].length > 0);
 
-  // 이미 그래프가 있으면 지우지 않고 값만 바꾸기
   if (chart) {
     chart.data.labels = labels;
     chart.data.datasets = datasets;
@@ -138,13 +160,12 @@ async function loadChart() {
     return;
   }
 
-  // 처음 한 번만 그래프 만들기
   chart = new Chart(document.getElementById("chart"), {
     type: "line",
     data: { labels, datasets },
     options: {
       animation: false,
-      maintainAspectRatio: false,   // 상자 높이(320px)에 맞추기
+      maintainAspectRatio: false,
       interaction: { mode:"index", intersect:false },
       scales: {
         x: { grid:{color:"#3a3a3a"}, ticks:{color:"#999", maxTicksLimit:8} },
@@ -170,7 +191,7 @@ async function refresh() {
     console.error("갱신 실패:", e);
   }
 }
-loadMeta().then(() => { refresh(); setInterval(refresh, 5000); });
+loadMeta().then(() => { refresh(); setInterval(refresh, 500); });
 </script>
 
 </body>
