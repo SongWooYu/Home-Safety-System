@@ -62,11 +62,25 @@ face_recognition:
 fall_detection:
   enabled: true
 
+  # ncnn: 현재 운영값. hailo는 live coverage 검증 후 수동 전환한다.
+  backend: ncnn
+
   # Pi5 CPU pre-Hailo baseline.
   # 640 export는 전체 서비스에서 약 7.9 FPS,
   # 960 export는 단독으로 약 5.4 FPS라 현재 사용할 수 없다.
   model:
     models/yolo11n-pose_ncnn_model
+
+  hailo_model:
+    /usr/local/hailo/resources/models/hailo8/yolov8m_pose.hef
+
+  hailo_postprocess:
+    /usr/local/hailo/resources/so/libyolov8pose_postprocess.so
+
+  hailo_whole_buffer:
+    /usr/lib/aarch64-linux-gnu/hailo/tappas/post_processes/cropping_algorithms/libwhole_buffer.so
+
+  hailo_timeout_seconds: 3.0
 
   input_size: 320
 

@@ -47,9 +47,17 @@ def load_config(path: str | Path) -> dict[str, Any]:
         data["inference"]["model"] = str(project_root / model_path)
     fall_config = data.get("fall_detection", {})
     if fall_config.get("enabled", False):
-        pose_model_path = Path(fall_config["model"])
-        if not pose_model_path.is_absolute():
-            fall_config["model"] = str(project_root / pose_model_path)
+        for model_key in (
+            "model",
+            "hailo_model",
+            "hailo_postprocess",
+            "hailo_whole_buffer",
+        ):
+            if not fall_config.get(model_key):
+                continue
+            pose_model_path = Path(fall_config[model_key])
+            if not pose_model_path.is_absolute():
+                fall_config[model_key] = str(project_root / pose_model_path)
 
         temporal_config = fall_config.get(
             "temporal",
@@ -90,4 +98,3 @@ def load_config(path: str | Path) -> dict[str, Any]:
             if not value_path.is_absolute():
                 face_config[key] = str(project_root / value_path)
     return data
-

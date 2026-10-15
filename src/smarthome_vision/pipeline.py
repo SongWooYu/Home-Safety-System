@@ -92,6 +92,7 @@ class WorkerSnapshot:
     object_count: int
     detected_objects: dict[str, int]
     pose_enabled: bool
+    pose_backend: str
     face_enabled: bool
     rule_mode: str
     pose_state: str
@@ -131,7 +132,7 @@ class CameraWorker:
         self,
         camera_config: dict[str, Any],
         source: CameraSource,
-        pose_estimator: NcnnPoseEstimator | None,
+        pose_estimator: Any | None,
         temporal_ensemble: NumpyFallEnsemble | None,
         face_registry: FaceRegistry | None,
         event_bus: EventBus,
@@ -1197,6 +1198,18 @@ class CameraWorker:
 
                 pose_enabled=self.pose_enabled,
 
+                pose_backend=(
+                    str(
+                        getattr(
+                            self.pose_estimator,
+                            "backend_name",
+                            "ncnn",
+                        )
+                    )
+                    if self.pose_enabled
+                    else "off"
+                ),
+
                 face_enabled=self.face_enabled,
 
                 rule_mode=self.rule_mode,
@@ -1367,15 +1380,31 @@ class VisionPipeline:
         self.config = config
         self.event_bus = EventBus(config["mqtt"])
         fall_config = config.get("fall_detection", {})
-        self.pose_estimator: NcnnPoseEstimator | None = None
+        self.pose_estimator: Any | None = None
         if fall_config.get("enabled", False):
-            self.pose_estimator = NcnnPoseEstimator(
-                model_dir=fall_config["model"],
-                input_size=int(fall_config.get("input_size", 320)),
-                confidence=float(fall_config.get("confidence", 0.35)),
-                nms_iou=float(fall_config.get("nms_iou", 0.45)),
-                threads=int(fall_config.get("threads", 2)),
-            )
+            pose_backend = str(fall_config.get("backend", "ncnn")).strip().lower()
+            if pose_backend == "ncnn":
+                self.pose_estimator = NcnnPoseEstimator(
+                    model_dir=fall_config["model"],
+                    input_size=int(fall_config.get("input_size", 320)),
+                    confidence=float(fall_config.get("confidence", 0.35)),
+                    nms_iou=float(fall_config.get("nms_iou", 0.45)),
+                    threads=int(fall_config.get("threads", 2)),
+                )
+            elif pose_backend == "hailo":
+                from .inference.hailo_pose import HailoPoseEstimator
+
+                self.pose_estimator = HailoPoseEstimator(
+                    hef_path=fall_config["hailo_model"],
+                    postprocess_path=fall_config["hailo_postprocess"],
+                    whole_buffer_path=fall_config["hailo_whole_buffer"],
+                    confidence=float(fall_config.get("confidence", 0.0)),
+                    timeout_seconds=float(
+                        fall_config.get("hailo_timeout_seconds", 3.0)
+                    ),
+                )
+            else:
+                raise ValueError(f"Unsupported pose backend: {pose_backend}")
 
         self.temporal_ensemble: (
             NumpyFallEnsemble | None
@@ -1473,6 +1502,9 @@ class VisionPipeline:
         for worker in self.workers.values():
             worker.stop()
         self.event_bus.stop()
+        close_pose = getattr(self.pose_estimator, "close", None)
+        if callable(close_pose):
+            close_pose()
 
     def status(self) -> dict[str, Any]:
         return {

@@ -5,8 +5,9 @@
 ## 결론
 
 AI HAT+의 Hailo-8은 정상 인식되고 pose HEF도 하드웨어에서 약 31 FPS로 실행된다.
-현재 운영 서비스는 아직 NCNN CPU pose를 사용한다. 다음 구현은 Hailo callback에서
-사람 bbox와 17개 keypoint만 꺼내 기존 tracker/B76 GRU에 넣는 것이다.
+Hailo callback에서 사람 bbox와 17개 keypoint를 꺼내 기존 estimator 계약으로
+변환하는 어댑터와 설정 backend 선택 지점까지 구현했다. 현재 운영 설정은 출력
+domain 검증을 위해 계속 `backend: ncnn`이며 Hailo를 아직 MQTT 경보에 사용하지 않는다.
 
 영상 전달과 AI는 분리한다. Pi4 통합 관제 화면에는 clean WebRTC를 보내고, Pi5 개발
 화면을 실제로 열었을 때만 bbox·관절·진단 오버레이를 만든다. Hailo는 pose 추론을

@@ -2342,6 +2342,10 @@ function renderCamera(
       `ai-${id}`
     );
 
+  const poseBackend =
+    String(camera.pose_backend || "pose")
+    .toUpperCase();
+
   if(
     camera.temporal_enabled
   ){
@@ -2350,7 +2354,7 @@ function renderCamera(
       "badge shadow";
 
     ai.textContent =
-      "GRU Shadow";
+      `${poseBackend} · GRU Shadow`;
 
   }else if(
     camera.pose_enabled
@@ -2360,7 +2364,7 @@ function renderCamera(
       "badge person";
 
     ai.textContent =
-      "Pose AI";
+      `${poseBackend} Pose`;
 
   }else if(
     camera.face_enabled
