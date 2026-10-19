@@ -8,13 +8,14 @@ Raspberry Pi 4가 MQTT·이벤트 저장·경보·최종 화면을 담당하는 
 - Pi5 `192.168.1.20:8080`: Camera Module 3, Dahua RTSP의 개발용 분석 화면
 - Pi4 `192.168.1.10:1883`: MQTT 중앙 브로커
 - Pi4 `192.168.1.10:8081`: 최종 안전 상태와 경보 화면; 영상은 브라우저가 Pi5 WebRTC에 직접 연결
-- 사람/낙상 입력: Dahua YOLO11n-pose NCNN 320을 약 10 FPS로 실행
-- 낙상: rule fallback은 active, B76 3-seed GRU는 Quiet shadow로 검증 중
-- 얼굴: Camera Module 3에서 YuNet + SFace, 정면·좌측·우측 등록, 특징 벡터만 로컬 저장
+- 사람/낙상 입력: Dahua를 Hailo YOLOv8s-Pose로 15 FPS 목표 분석
+- 낙상: EdgeFallKit 48-frame temporal MLP + 상태기계가 표준 MQTT 경보 발행
+- 얼굴: Camera Module 3에서 YuNet + SFace, 한 번의 자동 다각도 등록, 특징 벡터만 저장
 
 ## 문서
 
 - [구현 및 설정 통합 기록](docs/IMPLEMENTATION_HISTORY.md)
+- [Hailo YOLOv8 + EdgeFall 운영 전환 보고서](docs/HAILO_EDGEFALL_PRODUCTION_2026-10-19.md)
 - [자원 제약 기반 시스템 전면 재검토](docs/ARCHITECTURE_REVIEW.md)
 - [현재 프로젝트와 진행 단계](docs/CURRENT_STATE.md)
 - [Hailo 장착 전 비전·통합 상태와 완료 기준](docs/PRE_HAILO_STATUS_2026-10-08.md)
@@ -38,6 +39,15 @@ journalctl -u smarthome-vision.service -f
 
 Dahua URL, MQTT 자격 증명, 얼굴 목록·삭제용 관리 키는 Git에서 제외된 `.env`에 둡니다.
 얼굴 모델 최초 설치는 `./scripts/setup_face_models.sh`로 수행합니다.
+Hailo YOLOv8s-Pose와 EdgeFall 네이티브 runtime은 upstream 조건을 확인한 뒤 다음처럼
+고정 checksum/commit으로 재현합니다.
+
+```bash
+./scripts/setup_edgefall_shadow.sh --accept-upstream-license
+```
+
+스크립트의 `shadow` 이름은 검증 당시의 역사적 이름이며 생성 결과는 현재 운영
+경로에서 사용합니다.
 
 ## Pi4 새 설치
 

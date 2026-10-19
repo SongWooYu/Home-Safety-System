@@ -1,5 +1,9 @@
 # EdgeFallKit Hailo Shadow — 2026-10-15
 
+> **역사 문서:** 2026-10-19에 이 경로가 운영 MQTT 경로로 승격됐다.
+> 현재 기준은 [Hailo YOLOv8 + EdgeFall 운영 전환 보고서](HAILO_EDGEFALL_PRODUCTION_2026-10-19.md)를
+> 따른다. 아래 내용은 Shadow 검증 당시의 결정과 측정 기록이다.
+
 ## Current status
 
 The Raspberry Pi 5 now runs an isolated EdgeFallKit comparison path on the

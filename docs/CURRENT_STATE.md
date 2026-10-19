@@ -1,6 +1,23 @@
 # 현재 프로젝트 상태
 
-기준일: 2026-10-15
+기준일: 2026-10-19
+
+> **현재 운영 기준:** 2026-10-19부터 Dahua 낙상 경로는 Hailo
+> YOLOv8s-Pose + EdgeFallKit 단일 경로다. YOLO11 NCNN, Rule, B76 GRU는
+> 운영 코드·모델·venv에서 제거했고 과거 문단은 구현 이력으로만 읽는다.
+> 세부 구조, upstream 근거, 로컬 수정과 실패 원인은
+> [Hailo YOLOv8 + EdgeFall 운영 전환 보고서](HAILO_EDGEFALL_PRODUCTION_2026-10-19.md)가
+> 최신 source of truth다.
+
+## 2026-10-19 운영 전환
+
+- Hailo Model Zoo v2.15 `yolov8s_pose.hef`를 유일한 Dahua pose backend로 승격
+- EdgeFall `normal/suspected/fallen/recovering`을 기존 Pi4 `fall_*` MQTT 계약에 연결
+- 대시보드 미접속 상태에서도 15 FPS 목표로 상시 분석
+- YOLO11 NCNN 모델·모듈·패키지와 Rule/B76 GRU runtime 제거
+- 얼굴 분석 0.5 FPS에서 5 FPS로 상향하고 빠른 EMA box 추적 적용
+- 수동 3회 얼굴 등록을 10초 자동 다각도 등록으로 교체
+- 기존 연구 결과와 Shadow JSONL은 삭제하지 않고 발표·검증 기록으로 보존
 
 ## 2026-10-15 핵심 변경
 
@@ -52,16 +69,16 @@ Pi5의 `eth0`는 현재 내려가 있고 Dahua는 Pi5에 직결하지 않는다.
 - 로케일: `C.UTF-8`; 이전 `en_US.UTF-8` 경고는 현재 발생 조건이 제거됨
 - 서비스: `smarthome-vision.service`가 enabled/active
 - Hailo: AI HAT+ Hailo-8 장착, 공식 pose/metadata-only 기준선 검증 완료
-- Hailo 비교: Pi5 overlay 시청 중에만 실행, 동일 프레임 약 9.44 FPS/평균 36.64 ms
+- Hailo 운영: Dahua 최신 프레임을 대시보드와 무관하게 15 FPS 목표로 분석
 - WebRTC: MediaMTX가 enabled/active; Dahua는 원본 H.264, Cam3만 on-demand FFmpeg
 - 전시 출력: 기존 HDMI Chromium 자동 실행은 disabled/inactive; 네이티브 Wayland/OpenGL 표시 경로를 다음 단계로 구현
 - 개발 MJPEG: Cam3 640×360/15 FPS/JPEG70, Dahua 960×540/10 FPS/JPEG80;
   Pi4 Dahua WebRTC는 원본 H.264 pass-through
 - 현재 카메라: Camera Module 3와 Dahua RTSP, 2/2 온라인
-- 사람/자세: Dahua의 YOLO11n-pose NCNN 320 단일 추론에서 bbox와 keypoint 생성
-- 시간 낙상: B76 3-seed NumPy GRU ensemble을 20프레임/10 FPS Quiet shadow로 실행
-- rule 낙상: fallback을 유지하며 현재 MQTT `active`; 최근 장면의 반복 상태 전이가 검증 위험
-- 얼굴: OpenCV YuNet + SFace, 등록은 코드 불필요; 목록 조회·삭제는 관리 키 필요
+- 사람/자세: Dahua의 Hailo YOLOv8s-Pose v2.15에서 bbox와 17 keypoint 생성
+- 시간 낙상: EdgeFallKit Hailo 전용 48-frame MLP와 상태기계
+- 경보: EdgeFall 확정/해제를 표준 `fall_*` MQTT 이벤트로 전송
+- 얼굴: YuNet + SFace 5 FPS, 10초 자동 다각도 등록; 목록·삭제만 관리 키 필요
 - MQTT: `192.168.1.10:1883`로 이벤트와 상태 전송
 - 얼굴 원본 사진은 저장하지 않으며 특징 벡터 파일도 Git에서 제외
 
@@ -77,8 +94,8 @@ Camera Module 3와 Dahua는 각각 약 14.9 FPS로 수집되고 MQTT가 연결�
 ├── config/                 Pi5 카메라·추론·MQTT·MediaMTX 설정
 ├── config/display/         듀얼 HDMI 배치와 사용자 시연 서비스 설정
 ├── src/smarthome_vision/   Pi5 수집, 추론, 이벤트, 개발 대시보드
-├── models/                 Git에 포함된 YOLO11 NCNN 모델
-├── runtime/                내려받은 얼굴 모델; Git 제외
+├── native/                 EdgeFall 고정 소스용 C ABI와 정책 patch
+├── runtime/                Hailo HEF, EdgeFall .so, 얼굴 모델; Git 제외
 ├── data/                   얼굴 특징 벡터 등 운영 데이터; Git 제외
 ├── scripts/                Pi5 모델 및 WebRTC 설치 도구
 ├── systemd/                Pi5 자동 시작 서비스
@@ -117,18 +134,18 @@ Dahua는 `dahuaclean`의 1920×1080 원본 H.264를 사용한다. 절전·탭 �
 - Pi5 자동 시작과 2카메라 수집 확인
 - Pi5 카메라별 개발 MJPEG 경량화와 탭·네트워크 복귀 시 선택적 재연결
 - 코드 없는 현장 얼굴 등록, 관리 키로 보호한 목록·삭제, 이름 비공개 상태 출력
-- 정면·좌측·우측 다각도 얼굴 템플릿
+- 한 번의 안내 촬영으로 정면·좌우를 분류하는 자동 다각도 얼굴 템플릿
 - Pi4 MQTT/PostgreSQL/수집/자동화/최종 화면 Compose 구성과 설치 도구
 - Pi5 MediaMTX/WebRTC, Dahua 원본 H.264 pass-through, Cam3 on-demand publisher
 - Pi5 overlay와 Pi4 clean 영상 분리, 미시청 시 JPEG/FFmpeg 자동 중지
 - Hailo-8 pose 하드웨어·metadata-only 성능 기준선 확보
-- 동일 Dahua 프레임의 NCNN/Hailo Shadow 오버레이와 성능·coverage 비교 계측
+- Hailo YOLOv8s-Pose + EdgeFall 단일 운영 경로와 성능·coverage 계측
 - Dahua 최신 프레임 우선 GStreamer 입력, 960×540 표시, RTSP buffer age 계측
-- 다인원 B76 3-seed GRU batch 처리(6명 실측 약 1.69배 개선)
+- 과거 B76 3-seed GRU/NCNN 비교 결과는 연구·발표 기록으로 보존
 - Pi4 MJPEG Python 프록시 제거, 브라우저-Pi5 직접 영상 경로 구현
 - 동일 RTSP 프레임의 temporal buffer 중복 삽입 방지와 실효 FPS/지연 계측
-- B76 3-seed NumPy GRU shadow, 사람별 motion tracker, confirm/release/cooldown 구현
-- 비영상 JSONL shadow 관찰 로그와 품질 진단·요약 도구
+- EdgeFall 사람별 tracker, 48-frame MLP, confirm/recovery/cooldown 운영
+- 과거 비영상 JSONL shadow 관찰 로그는 기록으로 보존하고 새 로그 생성은 중지
 - Pi5→Pi4 비경보 MQTT/DB/API 왕복과 동일 event_id 중복 방지 실측 성공
 
 ## 협업자 커밋 확인
@@ -141,14 +158,12 @@ Compose 구조에 그대로 합치지 않는다.
 
 ## 남은 핵심 작업
 
-1. Hailo Shadow에서 사람 수·관절 coverage 차이를 ADL/연기 낙상으로 정량화
-2. 결과에 따라 Hailo confidence 보정 또는 Hailo pose 기반 GRU 재학습 결정
-3. 안전한 현장 ADL 30분과 방향별 연기 낙상으로 Quiet GRU와 rule을 비교
-4. GRU active → rule fallback → rule 제거 순서로 실제 경보 경로 전환
-5. Pi4와 Pi5 동시 재부팅 후 3분 이내 자동 복구 확인
-6. 스피커/부저의 실제 GPIO 또는 USB 오디오 출력을 Pi4 경보 토픽에 연결
-7. 두 WebRTC 영상과 AI를 2시간 유지하는 전시 soak test
-8. MQTT 익명 접속을 인증 방식으로 전환하고 방화벽 범위를 전시장 LAN으로 제한
+1. 변경한 Dahua 구도에서 전·측·후면 연기 낙상과 ADL 오탐 정량화
+2. Pi4가 켜진 환경에서 `fall_confirmed`/`fall_cleared`와 스피커 왕복 검증
+3. Camera Module 3 자동 다각도 등록의 각도별 오인식·미인식 기록
+4. Pi4와 Pi5 동시 재부팅 후 3분 이내 자동 복구 확인
+5. 두 WebRTC 영상과 AI를 2시간 유지하는 전시 soak test
+6. MQTT 익명 접속을 인증 방식으로 전환하고 방화벽 범위를 전시장 LAN으로 제한
 
 낙상은 현재 의료적으로 검증된 판정이 아니라 졸업작품 시연용 위험 징후 MVP다.
 

@@ -12,8 +12,10 @@ ef3bda2fd865fe6b80119fb1c896a63bfc4228ee
 ```
 
 The generated library is written under `runtime/native/` and is not committed.
-It consumes Hailo pose metadata only. It does not open RTSP, publish MQTT, or
-change the active Rule/GRU alarm path.
+It consumes Hailo pose metadata only. It does not open RTSP or publish MQTT;
+the Python adapter owns the production `fall_*` MQTT contract. Since
+2026-10-19 this Hailo/EdgeFall path is the active alarm path and the former
+Rule/GRU runtime is retired.
 
 `strict_confirmation.patch` is a local deployment policy layered on the pinned
 source. It normalizes Hailo hip Y to the temporal model's `0..1` coordinate
@@ -27,4 +29,6 @@ aspect ratio `>= 1.50`). The cues do not have to peak on the same Hailo frame.
 `foreshortened-persistence-v4` additionally covers side/back falls that move in
 camera depth: after the normal rapid-motion arming step, torso angle `>= 75°`
 and box aspect ratio `>= 0.90` must remain continuous for `0.80s`. The bridge
-remains Shadow-only and never publishes MQTT.
+is now used by the production adapter. Historical `shadow` path and ABI names
+are retained so the pinned build stays reproducible; they no longer describe
+the runtime policy.

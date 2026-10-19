@@ -20,23 +20,6 @@ mqtt:
   status_interval_seconds: 5
 
 
-# Legacy object detector configuration.
-#
-# 현재 fall runtime에서는 별도 object detector를
-# 생성하지 않는다.
-#
-# Pose model이 person bbox와 keypoint를
-# 동시에 제공한다.
-inference:
-  backend: ncnn
-  model: models/yolo11n_ncnn_model
-
-  input_size: 320
-  confidence: 0.35
-  nms_iou: 0.45
-  threads: 4
-
-
 face_recognition:
   enabled: true
 
@@ -51,28 +34,31 @@ face_recognition:
   database:
     data/faces.json
 
-  # 얼굴 인식은 계속 실행할 필요 없음.
-  analysis_fps: 0.5
+  # 움직이는 얼굴 박스가 따라오도록 5 Hz로 분석한다.
+  analysis_fps: 5
 
   match_threshold: 0.45
   detection_width: 640
   min_face_size: 70
 
+  # 한 번의 안내 촬영에서 정면/좌/우 특징을 자동 수집한다.
+  enrollment_seconds: 10
+  enrollment_sample_interval: 0.18
+  enrollment_min_samples_per_view: 3
+  enrollment_yaw_threshold: 0.12
+  enrollment_max_yaw: 0.65
+  enrollment_min_sharpness: 35
+
 
 fall_detection:
   enabled: true
 
-  # ncnn: 현재 운영값. hailo는 live coverage 검증 후 수동 전환한다.
-  backend: ncnn
+  # 운영 경로: Hailo Model Zoo v2.15 YOLOv8s-Pose -> EdgeFallKit.
+  # YOLO11 NCNN, RuleFallDetector, B76 GRU는 실행하지 않는다.
+  backend: hailo_edgefall
 
-  # Pi5 CPU pre-Hailo baseline.
-  # 640 export는 전체 서비스에서 약 7.9 FPS,
-  # 960 export는 단독으로 약 5.4 FPS라 현재 사용할 수 없다.
   model:
-    models/yolo11n-pose_ncnn_model
-
-  hailo_model:
-    /usr/local/hailo/resources/models/hailo8/yolov8m_pose.hef
+    runtime/models/yolov8s_pose_v2_15_h8.hef
 
   hailo_postprocess:
     /usr/local/hailo/resources/so/libyolov8pose_postprocess.so
@@ -82,88 +68,21 @@ fall_detection:
 
   hailo_timeout_seconds: 3.0
 
-  # Pi5 개발 대시보드용 동일 프레임 비교.
-  # NCNN이 Rule/GRU/MQTT를 계속 담당하며 Hailo 결과는 화면과 계측에만 쓴다.
-  # overlay stream을 보는 동안에만 실행하여 평상시 Hailo/복사 부하를 없앤다.
-  hailo_shadow:
+  # 대시보드 연결 여부와 무관하게 상시 분석하고 표준 fall_* 이벤트를
+  # Pi4 MQTT 브로커로 전송한다.
+  edgefall:
     enabled: true
-    run_when_viewed: true
-    analysis_fps: 15
-    # EdgeFallKit의 Hailo 시간 모델과 동일한 Model Zoo v2.15 입력 도메인.
-    # runtime/은 Git 제외 영역이며 setup 문서의 SHA-256으로 검증한다.
-    model:
-      runtime/models/yolov8s_pose_v2_15_h8.hef
-    confidence: 0.0
+    publish_mqtt: true
     keypoint_confidence: 0.25
-    edgefall:
-      enabled: true
-      library: runtime/native/libedgefall_shadow.so
-      keypoint_confidence: 0.25
+    library: runtime/native/libedgefall_shadow.so
 
-  input_size: 320
+  # Hailo post-process 단계에서 person 후보를 버리지 않고 EdgeFall의
+  # 관절 유효성 검사를 적용한다.
+  confidence: 0.0
 
-  # 현재 320 export의 score calibration.
-  confidence: 0.10
-
-  nms_iou: 0.45
-
-  # Pi5 benchmark에서 4 thread가
-  # 가장 빨랐음.
-  threads: 4
-
-  # 최종 GRU temporal sampling rate.
-  analysis_fps: 10
+  analysis_fps: 15
 
   keypoint_confidence: 0.25
-
-  # 아래 값은 현재 RuleFallDetector fallback용.
-  transition_window: 3.0
-  confirm_seconds: 1.2
-  recovery_seconds: 2.0
-
-  # active: MQTT 경보 전송, shadow: 로컬 진단만 수행.
-  # 안전 기능 변경은 사용자 승인 후에만 shadow로 전환한다.
-  rule:
-    mode: active
-
-  # B_76_sqrt 3-seed GRU.
-  #
-  # 현재는 기존 RuleFallDetector와
-  # 동시에 실행하는 shadow mode이며
-  # MQTT fall event에는 관여하지 않는다.
-  temporal:
-    enabled: true
-    mode: shadow
-
-    model:
-      models/fall_gru/b76_sqrt_ensemble/numpy
-
-    sequence_length: 20
-    sample_fps: 10
-    keypoint_confidence: 0.25
-
-    # Quiet development profile: 순간 spike보다 4프레임 지속성을 우선한다.
-    # 실제 전시장 검증 전까지 shadow 결과만 생성한다.
-    threshold: 0.89
-    consecutive: 4
-
-    max_missing_frames: 10
-    expire_seconds: 1.5
-    release_frames: 3
-    cooldown_seconds: 5.0
-
-    # 진단용 메타데이터이며 아직 경보 차단 조건으로 쓰지 않는다.
-    quality_min_visible_ratio: 0.35
-    quality_min_valid_frame_ratio: 0.75
-    quality_edge_margin_ratio: 0.01
-
-    # 원본 영상/얼굴은 저장하지 않는다. JSONL 한 세대만 순환 보관한다.
-    observation_log:
-      enabled: true
-      path: runtime/fall-shadow-observations-quiet.jsonl
-      interval_seconds: 1.0
-      max_bytes: 20971520
-
 
 cameras:
 
@@ -215,9 +134,6 @@ cameras:
     ai_enabled: true
 
     fall_detection: true
-
-    # Primary temporal fall camera.
-    temporal_fall: true
 
     face_recognition: false
 

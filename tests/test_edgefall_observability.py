@@ -34,12 +34,19 @@ def _track(state: str, *, fall_event: bool = False) -> dict:
 
 
 class EdgeFallObservabilityTest(unittest.TestCase):
-    def test_transitions_are_local_only_and_normal_start_is_silent(self):
+    def test_transitions_use_standard_mqtt_contract_and_normal_start_is_silent(self):
         worker = CameraWorker.__new__(CameraWorker)
         worker.camera_id = "dahua"
+        worker.source_type = "rtsp"
         worker.edgefall_shadow = _EdgeFall()
+        worker.edgefall_publish_mqtt = True
         worker.event_bus = _EventBus()
         worker._edgefall_track_states = {}
+        worker._edgefall_event_ids = {}
+        worker._edgefall_empty_since = None
+        worker._fall_state = "normal"
+        worker._fall_confidence = 0.0
+        worker._pose_state = "unknown"
 
         with patch("builtins.print") as output:
             worker._record_edgefall_transitions([_track("normal")])
@@ -54,14 +61,34 @@ class EdgeFallObservabilityTest(unittest.TestCase):
         self.assertEqual(
             event_types,
             [
-                "fall_edgefall_suspected",
-                "fall_edgefall_confirmed",
-                "fall_edgefall_recovering",
-                "fall_edgefall_cleared",
+                "fall_suspected",
+                "fall_confirmed",
+                "fall_cleared",
             ],
         )
         self.assertTrue(output.called)
         for args, kwargs in worker.event_bus.events:
             self.assertEqual(args[0], "dahua")
-            self.assertFalse(kwargs["publish"])
-            self.assertFalse(args[3]["published_to_mqtt"])
+            self.assertTrue(kwargs["publish"])
+            self.assertTrue(args[3]["published_to_mqtt"])
+            self.assertEqual(args[3]["backend"], "hailo_edgefall")
+
+    def test_repeated_native_event_id_is_not_published_twice(self):
+        worker = CameraWorker.__new__(CameraWorker)
+        worker.camera_id = "dahua"
+        worker.source_type = "rtsp"
+        worker.edgefall_shadow = _EdgeFall()
+        worker.edgefall_publish_mqtt = True
+        worker.event_bus = _EventBus()
+        worker._edgefall_track_states = {4: "suspected"}
+        worker._edgefall_event_ids = {}
+        worker._edgefall_empty_since = None
+        worker._fall_state = "suspected"
+        worker._fall_confidence = 0.0
+        worker._pose_state = "suspected"
+
+        worker._record_edgefall_transitions([_track("fallen", fall_event=True)])
+        worker._record_edgefall_transitions([_track("fallen", fall_event=True)])
+
+        self.assertEqual(len(worker.event_bus.events), 1)
+        self.assertEqual(worker.event_bus.events[0][0][1], "fall_confirmed")

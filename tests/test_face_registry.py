@@ -20,6 +20,10 @@ def fake_registry(directory: Path) -> FaceRegistry:
     registry.match_threshold = 0.45
     registry.detection_width = 640
     registry.min_face_size = 70
+    registry.enrollment_min_samples_per_view = 3
+    registry.enrollment_yaw_threshold = 0.12
+    registry.enrollment_max_yaw = 0.65
+    registry.enrollment_min_sharpness = 35.0
     registry._lock = threading.RLock()
     registry._people = []
     registry._detect = lambda frame: [np.zeros(15, dtype=np.float32)]
@@ -67,6 +71,23 @@ class FaceRegistryTest(unittest.TestCase):
             self.assertTrue(result[0]["registered"])
             self.assertEqual(result[0]["name"], "등록자")
             self.assertEqual(result[0]["similarity"], 1.0)
+
+    def test_multi_angle_enrollment_builds_three_templates_in_one_capture(self):
+        with tempfile.TemporaryDirectory() as temp:
+            registry = fake_registry(Path(temp))
+            yaw_values = iter([0.0] * 4 + [-0.3] * 4 + [0.3] * 4)
+            registry._face_yaw = lambda face: next(yaw_values)
+            registry._face_sharpness = lambda frame, face: 100.0
+            registry._feature = lambda frame, face: np.array(
+                [1.0, 0.2], dtype=np.float32
+            )
+            frames = [np.zeros((100, 100, 3), dtype=np.uint8) for _ in range(12)]
+
+            result = registry.enroll_multi_angle("테스트", frames)
+
+            self.assertEqual(result["mode"], "guided_multi_angle")
+            self.assertEqual(result["samples"], {"front": 4, "left": 4, "right": 4})
+            self.assertEqual(len(registry._people[0]["templates"]), 3)
 
     def test_loads_legacy_embedding_as_template(self):
         with tempfile.TemporaryDirectory() as temp:

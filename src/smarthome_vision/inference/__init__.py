@@ -1,5 +1,3 @@
-from .ncnn_detector import NcnnObjectDetector
-from .ncnn_pose import NcnnPoseEstimator
+from .hailo_pose import HailoPoseEstimator
 
-__all__ = ["NcnnObjectDetector", "NcnnPoseEstimator"]
-
+__all__ = ["HailoPoseEstimator"]

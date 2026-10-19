@@ -32,8 +32,8 @@ class OverlayScalingTest(unittest.TestCase):
         frame = np.zeros((360, 640, 3), dtype=np.uint8)
         worker._draw_overlay(frame, (1080, 1920, 3))
 
-        np.testing.assert_array_equal(frame[180, 320], np.array([0, 220, 70]))
-        np.testing.assert_array_equal(frame[270, 480], np.array([0, 220, 70]))
+        np.testing.assert_array_equal(frame[180, 320], np.array([255, 0, 255]))
+        np.testing.assert_array_equal(frame[270, 480], np.array([255, 0, 255]))
         np.testing.assert_array_equal(frame[180, 316], np.array([0, 0, 0]))
 
     def test_hailo_shadow_box_uses_distinct_color_and_scales(self):

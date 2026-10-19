@@ -11,12 +11,8 @@ import cv2
 import numpy as np
 
 from .events import EventBus
-from .fall_detection import FallTracker
 from .face_registry import FaceRegistry
-from .gru_numpy import NumpyFallEnsemble
-from .inference import NcnnPoseEstimator
-from .shadow_log import ShadowObservationLog
-from .temporal_fall import TemporalFallShadow
+from .inference import HailoPoseEstimator
 from .sources import PiCameraSource, RtspSource
 from .sources.base import CameraSource
 
@@ -194,7 +190,7 @@ class CameraWorker:
         pose_estimator: Any | None,
         hailo_shadow_estimator: Any | None,
         hailo_shadow_error: str | None,
-        temporal_ensemble: NumpyFallEnsemble | None,
+        temporal_ensemble: Any | None,
         face_registry: FaceRegistry | None,
         event_bus: EventBus,
         stream_width: int,
@@ -307,113 +303,34 @@ class CameraWorker:
                 self._face_font.loadFontData(fontFileName=str(face_font_path), idx=0)
             except cv2.error:
                 self._face_font = None
-        self.fall_tracker = FallTracker(
-            keypoint_confidence=float(fall_config.get("keypoint_confidence", 0.25)),
-            transition_window=float(fall_config.get("transition_window", 3.0)),
-            confirm_seconds=float(fall_config.get("confirm_seconds", 1.2)),
-            recovery_seconds=float(fall_config.get("recovery_seconds", 2.0)),
-        )
-        self.rule_mode = str(
-            fall_config.get("rule", {}).get("mode", "active")
-        ).lower()
-        if self.rule_mode not in {"active", "shadow"}:
-            raise ValueError("fall_detection.rule.mode must be active or shadow")
-
-        temporal_config = fall_config.get(
-            "temporal",
-            {},
-        )
-
-        self.temporal_mode = str(
-            temporal_config.get(
-                "mode",
-                "off",
-            )
-        )
-
+        # The former Rule and B76 GRU paths are intentionally absent from the
+        # production worker. Hailo YOLOv8 pose and EdgeFall own the fall state.
+        self.rule_mode = "off"
+        self.temporal_mode = "off"
         self.temporal_fall = None
-        self.shadow_log: ShadowObservationLog | None = None
+        self.shadow_log = None
+        self._fall_state = "normal"
+        self._fall_confidence = 0.0
+        self._pose_state = "unknown"
 
-        if (
-            self.pose_enabled
-            and temporal_ensemble is not None
-            and temporal_config.get(
-                "enabled",
-                False,
-            )
-            and camera_config.get(
-                "temporal_fall",
-                False,
-            )
-        ):
-            self.temporal_fall = TemporalFallShadow(
-                ensemble=temporal_ensemble,
-                sequence_length=int(
-                    temporal_config.get(
-                        "sequence_length",
-                        20,
-                    )
-                ),
-                keypoint_confidence=float(
-                    temporal_config.get(
-                        "keypoint_confidence",
-                        0.25,
-                    )
-                ),
-                threshold=float(
-                    temporal_config.get(
-                        "threshold",
-                        0.92,
-                    )
-                ),
-                consecutive=int(
-                    temporal_config.get(
-                        "consecutive",
-                        1,
-                    )
-                ),
-                max_missing_frames=int(
-                    temporal_config.get(
-                        "max_missing_frames",
-                        10,
-                    )
-                ),
-                expire_seconds=float(
-                    temporal_config.get(
-                        "expire_seconds",
-                        1.5,
-                    )
-                ),
-                release_frames=int(
-                    temporal_config.get(
-                        "release_frames",
-                        3,
-                    )
-                ),
-                cooldown_seconds=float(
-                    temporal_config.get(
-                        "cooldown_seconds",
-                        5.0,
-                    )
-                ),
-                quality_min_visible_ratio=float(
-                    temporal_config.get("quality_min_visible_ratio", 0.35)
-                ),
-                quality_min_valid_frame_ratio=float(
-                    temporal_config.get("quality_min_valid_frame_ratio", 0.75)
-                ),
-                quality_edge_margin_ratio=float(
-                    temporal_config.get("quality_edge_margin_ratio", 0.01)
-                ),
-            )
+        edgefall_config = fall_config.get("edgefall", {})
+        self.edgefall_publish_mqtt = bool(
+            edgefall_config.get("publish_mqtt", True)
+        )
+        self.edgefall_shadow = None
+        self._edgefall_shadow_error = None
+        if self.pose_enabled and edgefall_config.get("enabled", False):
+            try:
+                from .edgefall_shadow import EdgeFallRuntime
 
-            observation_config = temporal_config.get("observation_log", {})
-            if observation_config.get("enabled", False) and observation_config.get("path"):
-                self.shadow_log = ShadowObservationLog(
-                    path=observation_config["path"],
-                    interval_seconds=float(observation_config.get("interval_seconds", 1.0)),
-                    max_bytes=int(observation_config.get("max_bytes", 20 * 1024 * 1024)),
+                self.edgefall_shadow = EdgeFallRuntime(
+                    library_path=edgefall_config["library"],
+                    keypoint_confidence=float(
+                        edgefall_config.get("keypoint_confidence", 0.25)
+                    ),
                 )
+            except Exception as exc:
+                self._edgefall_shadow_error = str(exc)
 
         self._temporal_tracks: list[
             dict[str, Any]
@@ -441,6 +358,7 @@ class CameraWorker:
         self._person_seen_streak = 0
         self._last_person_seen_at: float | None = None
         self._faces: list[dict] = []
+        self._smoothed_faces: list[dict] = []
         self._registration_frame: np.ndarray | None = None
         self._last_registration_frame_at = 0.0
         self._pose_completed_at = deque(maxlen=120)
@@ -456,6 +374,8 @@ class CameraWorker:
         self._hailo_shadow_frame_seq = 0
         self._edgefall_shadow_tracks: list[dict[str, Any]] = []
         self._edgefall_track_states: dict[int, str] = {}
+        self._edgefall_event_ids: dict[int, int] = {}
+        self._edgefall_empty_since: float | None = None
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -798,141 +718,24 @@ class CameraWorker:
 
                         self._handle_person_state()
 
-                    pose_result = (
-                        self.fall_tracker
-                        .update(
-                            poses,
-                            frame.shape,
-                            now,
-                        )
-                    )
-
-                    if self.temporal_fall is not None:
-
-                        temporal_tracks = (
-                            self.temporal_fall
-                            .update(
+                    edgefall_tracks: list[dict[str, Any]] = []
+                    edgefall_error = self._edgefall_shadow_error
+                    if self.edgefall_shadow is not None:
+                        try:
+                            edgefall_tracks = self.edgefall_shadow.update(
                                 poses,
-                                frame.shape,
-                                now,
+                                frame.shape[1],
+                                frame.shape[0],
+                                pose_finished,
                             )
-                        )
+                            edgefall_error = None
+                            self._record_edgefall_transitions(edgefall_tracks)
+                        except Exception as exc:
+                            edgefall_error = str(exc)
 
-                        with self._lock:
-                            self._temporal_tracks = (
-                                temporal_tracks
-                            )
-
-                        transitions_present = any(
-                            track.get("transition") for track in temporal_tracks
-                        )
-                        rule_transition_present = pose_result.event_type is not None
-                        if self.shadow_log is not None:
-                            self.shadow_log.maybe_write(
-                                {
-                                    "schema_version": "1.1",
-                                    "camera_id": self.camera_id,
-                                    "frame_seq": frame_seq,
-                                    "pose_input_age_ms": round(input_age_ms, 3),
-                                    "pose_inference_ms": round(pose_latency_ms, 3),
-                                    "rule": {
-                                        "pose_state": pose_result.pose_state,
-                                        "fall_state": pose_result.fall_state,
-                                        "confidence": round(pose_result.confidence, 4),
-                                        "event_type": pose_result.event_type,
-                                        "metrics": pose_result.metrics,
-                                    },
-                                    "tracks": temporal_tracks,
-                                },
-                                now=pose_finished,
-                                force=transitions_present or rule_transition_present,
-                            )
-
-                        for track in temporal_tracks:
-                            transition = track.get(
-                                "transition"
-                            )
-
-                            if transition:
-                                self.event_bus.emit(
-                                    self.camera_id,
-                                    str(transition),
-                                    float(
-                                        track.get(
-                                            "alert_score",
-                                            0.0,
-                                        )
-                                    ),
-                                    {
-                                        "shadow": True,
-                                        "published_to_mqtt": False,
-                                        "model": "B_76_sqrt_3seed_ensemble",
-                                        "track_id": track.get("track_id"),
-                                        "state": track.get("state"),
-                                        "normal": track.get("normal"),
-                                        "falling": track.get("falling"),
-                                        "fallen": track.get("fallen"),
-                                        "threshold": track.get("threshold"),
-                                        "quality_flags": track.get("quality_flags"),
-                                        "mean_visible_keypoint_ratio": track.get(
-                                            "mean_visible_keypoint_ratio"
-                                        ),
-                                        "valid_frame_ratio": track.get("valid_frame_ratio"),
-                                        "bbox_edge_sides": track.get("bbox_edge_sides"),
-                                    },
-                                    publish=False,
-                                )
-
-                    if pose_result.event_type:
-
-                        severity = (
-                            "critical"
-                            if (
-                                pose_result
-                                .event_type
-                                == "fall_confirmed"
-                            )
-                            else "warning"
-                        )
-
-                        if (
-                            pose_result
-                            .event_type
-                            == "fall_cleared"
-                        ):
-                            severity = (
-                                "normal"
-                            )
-
-                        self.event_bus.emit(
-                            self.camera_id,
-                            pose_result.event_type,
-                            pose_result.confidence,
-                            {
-                                "severity":
-                                    severity,
-
-                                "pose_state":
-                                    pose_result.pose_state,
-
-                                "source_type":
-                                    self.source_type,
-
-                                "shadow":
-                                    self.rule_mode
-                                    != "active",
-
-                                "published_to_mqtt":
-                                    self.rule_mode
-                                    == "active",
-
-                                **pose_result.metrics,
-                            },
-                            publish=(
-                                self.rule_mode
-                                == "active"
-                            ),
-                        )
+                    with self._lock:
+                        self._edgefall_shadow_tracks = edgefall_tracks
+                        self._edgefall_shadow_error = edgefall_error
 
                 except Exception as exc:
 
@@ -946,7 +749,8 @@ class CameraWorker:
 
 
             # --------------------------------------
-            # Hailo / EdgeFall Shadow
+            # Historical parallel Hailo comparison path. Production config
+            # never enables it; the single primary Hailo path above is used.
             # --------------------------------------
 
             hailo_requested = self._hailo_shadow_requested()
@@ -997,6 +801,8 @@ class CameraWorker:
                         )
                     )
 
+                    faces = self._smooth_face_results(faces)
+
                 except Exception:
 
                     faces = []
@@ -1015,6 +821,42 @@ class CameraWorker:
                 self._stop.wait(
                     0.005
                 )
+
+    def _smooth_face_results(self, faces: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Reduce YuNet box jitter without adding a stale-frame queue."""
+        previous = self._smoothed_faces
+        smoothed: list[dict[str, Any]] = []
+        for face in faces:
+            current = dict(face)
+            x1, y1, x2, y2 = (float(value) for value in current["box"])
+            best: dict[str, Any] | None = None
+            best_iou = 0.0
+            for candidate in previous:
+                px1, py1, px2, py2 = (
+                    float(value) for value in candidate["box"]
+                )
+                ix1, iy1 = max(x1, px1), max(y1, py1)
+                ix2, iy2 = min(x2, px2), min(y2, py2)
+                intersection = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+                union = (
+                    max(0.0, x2 - x1) * max(0.0, y2 - y1)
+                    + max(0.0, px2 - px1) * max(0.0, py2 - py1)
+                    - intersection
+                )
+                iou = intersection / union if union > 0 else 0.0
+                if iou > best_iou:
+                    best_iou = iou
+                    best = candidate
+            if best is not None and best_iou >= 0.20:
+                # Favor the newest detection so the box follows motion quickly.
+                alpha = 0.68
+                current["box"] = [
+                    int(round(alpha * value + (1.0 - alpha) * old))
+                    for value, old in zip(current["box"], best["box"])
+                ]
+            smoothed.append(current)
+        self._smoothed_faces = smoothed
+        return smoothed
 
     def _hailo_shadow_requested(self) -> bool:
         if not self.hailo_shadow_enabled:
@@ -1073,9 +915,39 @@ class CameraWorker:
         self,
         tracks: list[dict[str, Any]],
     ) -> None:
-        """Record EdgeFall transitions locally without publishing MQTT."""
+        """Translate EdgeFall state changes to the existing Pi4 MQTT contract."""
+        now = time.monotonic()
+        if tracks:
+            self._edgefall_empty_since = None
+        elif self._fall_state != "normal":
+            if self._edgefall_empty_since is None:
+                self._edgefall_empty_since = now
+            elif now - self._edgefall_empty_since >= 2.0:
+                self.event_bus.emit(
+                    self.camera_id,
+                    "fall_cleared",
+                    0.0,
+                    {
+                        "severity": "normal",
+                        "source_type": self.source_type,
+                        "backend": "hailo_edgefall",
+                        "reason": "track_lost",
+                        "shadow": False,
+                        "published_to_mqtt": self.edgefall_publish_mqtt,
+                    },
+                    publish=self.edgefall_publish_mqtt,
+                )
+                self._fall_state = "normal"
+                self._fall_confidence = 0.0
+                self._pose_state = "unknown"
+                self._edgefall_empty_since = None
+        if not tracks:
+            self._edgefall_track_states = {}
+            return
+
         current_states: dict[int, str] = {}
         previous_states = self._edgefall_track_states
+        states = [str(item.get("state", "normal")) for item in tracks]
 
         for track in tracks:
             track_id = int(track["track_id"])
@@ -1083,29 +955,61 @@ class CameraWorker:
             previous = previous_states.get(track_id)
             current_states[track_id] = state
 
+            event_id = int(track.get("event_id", 0))
+            is_new_fall_event = bool(track.get("fall_event", False)) and (
+                event_id > 0
+                and self._edgefall_event_ids.get(track_id) != event_id
+            )
             transition: str | None = None
-            if bool(track.get("fall_event", False)):
-                transition = "fall_edgefall_confirmed"
+            if is_new_fall_event:
+                transition = "fall_confirmed"
+                self._edgefall_event_ids[track_id] = event_id
             elif previous is not None and state != previous:
                 if state == "suspected":
-                    transition = "fall_edgefall_suspected"
-                elif state == "recovering":
-                    transition = "fall_edgefall_recovering"
-                elif state == "normal" and previous != "normal":
-                    transition = "fall_edgefall_cleared"
+                    transition = "fall_suspected"
+                elif (
+                    state == "normal"
+                    and previous != "normal"
+                    and all(value == "normal" for value in states)
+                ):
+                    transition = "fall_cleared"
+
+            if "fallen" in states:
+                self._fall_state = "confirmed"
+            elif "suspected" in states:
+                self._fall_state = "suspected"
+            elif "recovering" in states:
+                self._fall_state = "recovering"
+            else:
+                self._fall_state = "normal"
+            self._pose_state = state
+            self._fall_confidence = max(
+                (float(item.get("temporal_probability", 0.0)) for item in tracks),
+                default=0.0,
+            )
 
             if transition is None:
                 continue
 
             probability = float(track.get("temporal_probability", 0.0))
+            severity = (
+                "critical"
+                if transition == "fall_confirmed"
+                else "normal"
+                if transition == "fall_cleared"
+                else "warning"
+            )
             details = {
-                "shadow": True,
-                "published_to_mqtt": False,
+                "severity": severity,
+                "source_type": self.source_type,
+                "backend": "hailo_edgefall",
+                "shadow": False,
+                "published_to_mqtt": self.edgefall_publish_mqtt,
                 "model": getattr(self.edgefall_shadow, "profile", "edgefallkit"),
                 "track_id": track_id,
                 "previous_state": previous,
                 "state": state,
-                "event_id": int(track.get("event_id", 0)),
+                "edgefall_event_id": event_id,
                 "temporal_positive": bool(track.get("temporal_positive", False)),
                 "hip_drop_speed": float(track.get("hip_drop_speed", 0.0)),
                 "hip_drop_distance": float(track.get("hip_drop_distance", 0.0)),
@@ -1117,15 +1021,15 @@ class CameraWorker:
                 transition,
                 probability,
                 details,
-                publish=False,
+                publish=self.edgefall_publish_mqtt,
             )
             print(
-                "EDGEFALL_SHADOW_TRANSITION "
+                "EDGEFALL_TRANSITION "
                 f"camera={self.camera_id} track={track_id} "
                 f"previous={previous or 'new'} state={state} "
                 f"fall_event={bool(track.get('fall_event', False))} "
-                f"event_id={int(track.get('event_id', 0))} "
-                f"probability={probability:.4f} mqtt=false",
+                f"event_id={event_id} probability={probability:.4f} "
+                f"mqtt={str(self.edgefall_publish_mqtt).lower()}",
                 flush=True,
             )
 
@@ -1203,20 +1107,20 @@ class CameraWorker:
                     continue
                 start_point = point(keypoints[start][0], keypoints[start][1])
                 end_point = point(keypoints[end][0], keypoints[end][1])
-                cv2.line(frame, start_point, end_point, (255, 210, 70), 2)
+                cv2.line(frame, start_point, end_point, (0, 165, 255), 2)
             for x, y, confidence in keypoints:
                 if confidence >= 0.25:
-                    cv2.circle(frame, point(x, y), 3, (255, 230, 120), -1)
+                    cv2.circle(frame, point(x, y), 3, (0, 220, 255), -1)
 
         for detection in self._detections:
             x1, y1, x2, y2 = box(detection["box"])
             confidence = detection["confidence"]
             label = detection["label"]
-            color = (0, 220, 70) if label == "person" else (0, 185, 255)
+            color = (255, 0, 255)
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
                 frame,
-                f"{label.upper()} {confidence:.2f}",
+                f"HAILO {label.upper()} {confidence:.2f}",
                 (x1, max(24, y1 - 8)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.65,
@@ -1353,11 +1257,11 @@ class CameraWorker:
             best_edgefall = select_edgefall_track(edgefall_shadow_tracks)
             if best_edgefall is None:
                 edgefall_state = "warming"
-                edgefall_text = "EDGEFALL SHADOW | NO ACTIVE TRACK"
+                edgefall_text = "EDGEFALL | NO ACTIVE TRACK"
             else:
                 edgefall_state = str(best_edgefall.get("state", "normal"))
                 edgefall_text = (
-                    "EDGEFALL SHADOW | "
+                    "EDGEFALL | "
                     f"TRACK #{best_edgefall['track_id']} | "
                     f"{edgefall_state.upper()} | "
                     f"P {float(best_edgefall.get('temporal_probability', 0.0)):.0%}"
@@ -1387,20 +1291,6 @@ class CameraWorker:
                 2,
             )
 
-        if self.pose_enabled and self.fall_tracker.fall_state != "normal":
-            is_confirmed = self.fall_tracker.fall_state == "confirmed"
-            fall_color = (30, 30, 255) if is_confirmed else (0, 165, 255)
-            fall_label = "FALL CONFIRMED" if is_confirmed else "FALL SUSPECTED"
-            cv2.rectangle(frame, (0, 42), (frame.shape[1], 82), fall_color, -1)
-            cv2.putText(
-                frame,
-                f"{fall_label} | {self.fall_tracker.confidence:.2f}",
-                (12, 70),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 255),
-                2,
-            )
 
     def add_stream_client(self, overlay: bool) -> None:
         with self._lock:
@@ -1671,7 +1561,7 @@ class CameraWorker:
                         getattr(
                             self.pose_estimator,
                             "backend_name",
-                            "ncnn",
+                            "hailo_edgefall",
                         )
                     )
                     if self.pose_enabled
@@ -1683,18 +1573,15 @@ class CameraWorker:
                 rule_mode=self.rule_mode,
 
                 pose_state=(
-                    self.fall_tracker
-                    .pose_state
+                    self._pose_state
                 ),
 
                 fall_state=(
-                    self.fall_tracker
-                    .fall_state
+                    self._fall_state
                 ),
 
                 fall_confidence=round(
-                    self.fall_tracker
-                    .confidence,
+                    self._fall_confidence,
                     3,
                 ),
 
@@ -1921,7 +1808,38 @@ class CameraWorker:
             )
 
     def status_dict(self) -> dict[str, Any]:
-        return self.snapshot().__dict__
+        status = self.snapshot().__dict__
+        status.update(
+            {
+                "fall_backend": "hailo_edgefall" if self.pose_enabled else "off",
+                "fall_model": (
+                    str(getattr(self.pose_estimator, "model_name", "")) or None
+                    if self.pose_enabled
+                    else None
+                ),
+                "fall_mqtt_enabled": bool(
+                    self.pose_enabled and self.edgefall_publish_mqtt
+                ),
+                "edgefall_enabled": self.edgefall_shadow is not None,
+                "edgefall_profile": (
+                    str(getattr(self.edgefall_shadow, "profile", "")) or None
+                ),
+                "edgefall_state": status["edgefall_shadow_state"],
+                "edgefall_probability": status["edgefall_shadow_probability"],
+                "edgefall_best_track_id": status["edgefall_shadow_best_track_id"],
+                "edgefall_tracks": status["edgefall_shadow_tracks"],
+                "edgefall_error": status["edgefall_shadow_error"],
+            }
+        )
+        for key in list(status):
+            if (
+                key.startswith("hailo_shadow_")
+                or key.startswith("edgefall_shadow_")
+                or key.startswith("temporal_")
+                or key == "rule_mode"
+            ):
+                status.pop(key, None)
+        return status
 
 
 class VisionPipeline:
@@ -1933,20 +1851,12 @@ class VisionPipeline:
         self.hailo_shadow_estimator: Any | None = None
         self.hailo_shadow_error: str | None = None
         if fall_config.get("enabled", False):
-            pose_backend = str(fall_config.get("backend", "ncnn")).strip().lower()
-            if pose_backend == "ncnn":
-                self.pose_estimator = NcnnPoseEstimator(
-                    model_dir=fall_config["model"],
-                    input_size=int(fall_config.get("input_size", 320)),
-                    confidence=float(fall_config.get("confidence", 0.35)),
-                    nms_iou=float(fall_config.get("nms_iou", 0.45)),
-                    threads=int(fall_config.get("threads", 2)),
-                )
-            elif pose_backend == "hailo":
-                from .inference.hailo_pose import HailoPoseEstimator
-
+            pose_backend = str(
+                fall_config.get("backend", "hailo_edgefall")
+            ).strip().lower()
+            if pose_backend == "hailo_edgefall":
                 self.pose_estimator = HailoPoseEstimator(
-                    hef_path=fall_config["hailo_model"],
+                    hef_path=fall_config["model"],
                     postprocess_path=fall_config["hailo_postprocess"],
                     whole_buffer_path=fall_config["hailo_whole_buffer"],
                     confidence=float(fall_config.get("confidence", 0.0)),
@@ -1956,64 +1866,8 @@ class VisionPipeline:
                 )
             else:
                 raise ValueError(f"Unsupported pose backend: {pose_backend}")
-
-            hailo_shadow_config = fall_config.get("hailo_shadow", {})
-            if (
-                hailo_shadow_config.get("enabled", False)
-                and pose_backend != "hailo"
-            ):
-                try:
-                    from .inference.hailo_pose import HailoPoseEstimator
-
-                    self.hailo_shadow_estimator = HailoPoseEstimator(
-                        hef_path=hailo_shadow_config.get(
-                            "model",
-                            fall_config["hailo_model"],
-                        ),
-                        postprocess_path=fall_config["hailo_postprocess"],
-                        whole_buffer_path=fall_config["hailo_whole_buffer"],
-                        confidence=float(
-                            hailo_shadow_config.get("confidence", 0.0)
-                        ),
-                        timeout_seconds=float(
-                            fall_config.get("hailo_timeout_seconds", 3.0)
-                        ),
-                    )
-                except Exception as exc:
-                    self.hailo_shadow_error = str(exc)
-
-        self.temporal_ensemble: (
-            NumpyFallEnsemble | None
-        ) = None
-
-        self.temporal_error: (
-            str | None
-        ) = None
-
-        temporal_config = (
-            fall_config.get(
-                "temporal",
-                {},
-            )
-        )
-
-        if temporal_config.get(
-            "enabled",
-            False,
-        ):
-            try:
-                self.temporal_ensemble = (
-                    NumpyFallEnsemble(
-                        temporal_config[
-                            "model"
-                        ]
-                    )
-                )
-
-            except Exception as exc:
-                self.temporal_error = (
-                    str(exc)
-                )
+        self.temporal_ensemble = None
+        self.temporal_error = None
 
         face_config = config.get("face_recognition", {})
         self.face_registry: FaceRegistry | None = None
@@ -2027,6 +1881,18 @@ class VisionPipeline:
                     match_threshold=float(face_config.get("match_threshold", 0.45)),
                     detection_width=int(face_config.get("detection_width", 640)),
                     min_face_size=int(face_config.get("min_face_size", 70)),
+                    enrollment_min_samples_per_view=int(
+                        face_config.get("enrollment_min_samples_per_view", 3)
+                    ),
+                    enrollment_yaw_threshold=float(
+                        face_config.get("enrollment_yaw_threshold", 0.12)
+                    ),
+                    enrollment_max_yaw=float(
+                        face_config.get("enrollment_max_yaw", 0.65)
+                    ),
+                    enrollment_min_sharpness=float(
+                        face_config.get("enrollment_min_sharpness", 35.0)
+                    ),
                 )
             except Exception as exc:
                 self.face_error = str(exc)
@@ -2091,10 +1957,15 @@ class VisionPipeline:
         return {
             "service": "smarthome-vision",
             "mqtt_connected": self.event_bus.connected,
-            "temporal_fall_enabled": self.temporal_ensemble is not None,
-            "temporal_fall_error": self.temporal_error,
-            "hailo_shadow_enabled": self.hailo_shadow_estimator is not None,
-            "hailo_shadow_error": self.hailo_shadow_error,
+            "fall_backend": "hailo_edgefall",
+            "fall_model": str(
+                getattr(self.pose_estimator, "model_name", "")
+            ) or None,
+            "fall_events_publish_mqtt": bool(
+                self.config.get("fall_detection", {})
+                .get("edgefall", {})
+                .get("publish_mqtt", True)
+            ),
             "face_recognition_enabled": self.face_registry is not None,
             "face_recognition_error": self.face_error,
             "registered_people": len(self.registered_faces()),
@@ -2119,6 +1990,30 @@ class VisionPipeline:
                 frames.append(frame)
             time.sleep(0.25)
         return self.face_registry.enroll(name, frames, view)
+
+    def enroll_face_auto(self, camera_id: str, name: str) -> dict:
+        if self.face_registry is None:
+            raise RuntimeError(self.face_error or "얼굴 인식 기능을 사용할 수 없습니다.")
+        worker = self.workers.get(camera_id)
+        if worker is None or not worker.face_enrollment:
+            raise ValueError("얼굴 등록은 Camera Module 3에서만 사용할 수 있습니다.")
+
+        face_config = self.config.get("face_recognition", {})
+        duration = max(6.0, float(face_config.get("enrollment_seconds", 10.0)))
+        interval = max(
+            0.12,
+            float(face_config.get("enrollment_sample_interval", 0.18)),
+        )
+        frames: list[np.ndarray] = []
+        deadline = time.monotonic() + duration
+        while time.monotonic() < deadline:
+            frame = worker.registration_frame()
+            if frame is not None:
+                frames.append(frame)
+            time.sleep(interval)
+        if not frames:
+            raise RuntimeError("Camera Module 3의 최신 프레임을 가져오지 못했습니다.")
+        return self.face_registry.enroll_multi_angle(name, frames)
 
     def delete_face(self, person_id: str) -> bool:
         return self.face_registry is not None and self.face_registry.delete(person_id)

@@ -27,6 +27,10 @@ class FaceRegistry:
         match_threshold: float = 0.45,
         detection_width: int = 640,
         min_face_size: int = 70,
+        enrollment_min_samples_per_view: int = 3,
+        enrollment_yaw_threshold: float = 0.12,
+        enrollment_max_yaw: float = 0.65,
+        enrollment_min_sharpness: float = 35.0,
     ):
         detector_path = Path(detector_model)
         recognizer_path = Path(recognizer_model)
@@ -37,6 +41,19 @@ class FaceRegistry:
         self.match_threshold = match_threshold
         self.detection_width = max(160, detection_width)
         self.min_face_size = max(30, min_face_size)
+        self.enrollment_min_samples_per_view = max(
+            2, int(enrollment_min_samples_per_view)
+        )
+        self.enrollment_yaw_threshold = max(
+            0.05, float(enrollment_yaw_threshold)
+        )
+        self.enrollment_max_yaw = max(
+            self.enrollment_yaw_threshold + 0.1,
+            float(enrollment_max_yaw),
+        )
+        self.enrollment_min_sharpness = max(
+            0.0, float(enrollment_min_sharpness)
+        )
         self._lock = threading.RLock()
         self._detector = cv2.FaceDetectorYN_create(
             str(detector_path),
@@ -123,6 +140,125 @@ class FaceRegistry:
                 "views": [item["view"] for item in existing["templates"]],
             }
 
+    def enroll_multi_angle(self, name: str, frames: list[np.ndarray]) -> dict:
+        """Enroll front and both yaw directions from one continuous capture.
+
+        YuNet's five landmarks provide a lightweight yaw proxy. This is a
+        guided multi-template enrollment, not a 3-D reconstruction or liveness
+        proof. Only one clear face is accepted in each sampled frame.
+        """
+        clean_name = " ".join(str(name).split())
+        if (
+            not clean_name
+            or len(clean_name) > 40
+            or any(ord(char) < 32 for char in clean_name)
+        ):
+            raise FaceRegistryError("이름은 1~40자로 입력하세요.")
+
+        samples: dict[str, list[np.ndarray]] = {
+            "front": [],
+            "left": [],
+            "right": [],
+        }
+        rejected = {
+            "face_count": 0,
+            "blur": 0,
+            "angle": 0,
+            "feature": 0,
+        }
+        with self._lock:
+            for frame in frames:
+                faces = self._detect(frame)
+                if len(faces) != 1:
+                    rejected["face_count"] += 1
+                    continue
+                face = faces[0]
+                yaw = self._face_yaw(face)
+                if yaw is None or abs(yaw) > self.enrollment_max_yaw:
+                    rejected["angle"] += 1
+                    continue
+                if self._face_sharpness(frame, face) < self.enrollment_min_sharpness:
+                    rejected["blur"] += 1
+                    continue
+                feature = self._feature(frame, face)
+                if feature is None:
+                    rejected["feature"] += 1
+                    continue
+                if abs(yaw) < self.enrollment_yaw_threshold:
+                    view = "front"
+                elif yaw < 0:
+                    view = "left"
+                else:
+                    view = "right"
+                # Bound each mean so a long pause at one angle cannot dominate.
+                if len(samples[view]) < 16:
+                    samples[view].append(feature)
+
+            missing = [
+                view
+                for view, features in samples.items()
+                if len(features) < self.enrollment_min_samples_per_view
+            ]
+            if missing:
+                labels = {"front": "정면", "left": "한쪽", "right": "반대쪽"}
+                counts = ", ".join(
+                    f"{labels[view]} {len(samples[view])}장"
+                    for view in ("front", "left", "right")
+                )
+                raise FaceRegistryError(
+                    "다각도 특징이 부족합니다. 얼굴을 화면 중앙에 두고 "
+                    "정면에서 양쪽으로 천천히 돌려 주세요. " + counts
+                )
+
+            now = datetime.now(timezone.utc).isoformat()
+            templates = []
+            for view in ("front", "left", "right"):
+                embedding = np.mean(np.stack(samples[view]), axis=0)
+                embedding /= max(float(np.linalg.norm(embedding)), 1e-8)
+                templates.append(
+                    {
+                        "view": view,
+                        "embedding": embedding.astype(float).tolist(),
+                        "updated_at": now,
+                    }
+                )
+
+            existing = next(
+                (
+                    person
+                    for person in self._people
+                    if person["name"].casefold() == clean_name.casefold()
+                ),
+                None,
+            )
+            if existing is None:
+                existing = {
+                    "id": uuid.uuid4().hex[:12],
+                    "name": clean_name,
+                    "templates": templates,
+                    "updated_at": now,
+                }
+                self._people.append(existing)
+            else:
+                existing["name"] = clean_name
+                existing["templates"] = [
+                    item
+                    for item in existing["templates"]
+                    if item.get("view") not in self.VALID_VIEWS
+                ] + templates
+                existing["updated_at"] = now
+                existing.pop("embedding", None)
+            self._save()
+            return {
+                "id": existing["id"],
+                "name": existing["name"],
+                "updated_at": now,
+                "mode": "guided_multi_angle",
+                "views": ["front", "left", "right"],
+                "samples": {view: len(value) for view, value in samples.items()},
+                "rejected": rejected,
+            }
+
     def delete(self, person_id: str) -> bool:
         with self._lock:
             original_count = len(self._people)
@@ -207,6 +343,28 @@ class FaceRegistry:
         if norm <= 1e-8:
             return None
         return feature / norm
+
+    @staticmethod
+    def _face_yaw(face: np.ndarray) -> float | None:
+        # YuNet row: bbox, right eye, left eye, nose, mouth corners, score.
+        eye_a_x = float(face[4])
+        eye_b_x = float(face[6])
+        nose_x = float(face[8])
+        eye_span = abs(eye_b_x - eye_a_x)
+        if eye_span < 1.0:
+            return None
+        return (nose_x - (eye_a_x + eye_b_x) * 0.5) / eye_span
+
+    @staticmethod
+    def _face_sharpness(frame: np.ndarray, face: np.ndarray) -> float:
+        height, width = frame.shape[:2]
+        x, y, box_width, box_height = (int(round(value)) for value in face[:4])
+        x1, y1 = max(0, x), max(0, y)
+        x2, y2 = min(width, x + box_width), min(height, y + box_height)
+        if x2 <= x1 or y2 <= y1:
+            return 0.0
+        gray = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+        return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
     def _load(self) -> None:
         if not self.database_path.exists():

@@ -1,5 +1,10 @@
 # Fall Detection ML / Vision Handoff
 
+> **2026-10-19 운영 전환:** 이 문서의 B76 GRU와 YOLO11 배포 지시는 연구 이력으로
+> 보존되며 더 이상 runtime 지시가 아니다. 현재 운영 source of truth는
+> [Hailo YOLOv8 + EdgeFall 운영 전환 보고서](HAILO_EDGEFALL_PRODUCTION_2026-10-19.md)다.
+> YOLO11 NCNN, Rule과 B76 GRU 배포 자산은 제거됐다.
+
 > **2026-10-15 hardware override:** ABKO APC720 is retired. Camera Module 3 now
 > owns face enrollment and recognition. All later ABKO role references in this
 > historical handoff describe the pre-retirement configuration and must not be

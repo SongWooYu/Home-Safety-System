@@ -1,5 +1,9 @@
 # Raspberry Pi 5 비전 노드
 
+> **2026-10-19 운영 기준:** 낙상은 Hailo YOLOv8s-Pose + EdgeFallKit 단일
+> 경로다. 자세한 현재 구성은
+> [운영 전환 보고서](HAILO_EDGEFALL_PRODUCTION_2026-10-19.md)를 우선한다.
+
 ## 목적
 
 Camera Module 3와 Dahua RTSP를 하나의 처리 결과와 MQTT 계약으로 통합한다.

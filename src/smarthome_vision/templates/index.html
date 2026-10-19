@@ -504,7 +504,7 @@ main{
 
 .compare-grid{
   display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-template-columns:1fr;
   gap:10px;
 }
 
@@ -575,6 +575,10 @@ main{
     var(--radius);
 
   overflow:hidden;
+}
+
+.legacy-panel{
+  display:none !important;
 }
 
 .panel-head{
@@ -830,7 +834,6 @@ main{
 
   grid-template-columns:
     minmax(150px,180px)
-    minmax(100px,130px)
     minmax(180px,1fr)
     auto;
 
@@ -1218,7 +1221,7 @@ select{
 
     <div class="summary-card">
       <div class="summary-label">
-        Temporal GRU
+        낙상 AI
       </div>
 
       <div
@@ -1228,7 +1231,7 @@ select{
       </div>
 
       <div class="summary-detail">
-        3-seed ensemble
+        Hailo + EdgeFall
       </div>
     </div>
 
@@ -1415,12 +1418,12 @@ select{
         </h2>
 
         <div class="section-note">
-          Dahua · NCNN 기준선 + Hailo v8s/EdgeFall Shadow + 기존 GRU 비교
+          Dahua · Hailo YOLOv8s-Pose + EdgeFall 운영 경로
         </div>
       </div>
 
-      <span class="badge shadow">
-        GRU SHADOW · MQTT 미전송
+      <span class="badge online">
+        EDGEFALL ACTIVE · MQTT 전송
       </span>
 
     </div>
@@ -1432,11 +1435,11 @@ select{
         <div class="panel-head">
 
           <div class="panel-title">
-            Pose Backend 병렬 Shadow 비교
+            Hailo 낙상 인식 운영 상태
           </div>
 
           <span
-            class="badge shadow"
+            class="badge"
             id="hailo-compare-badge">
             준비 중
           </span>
@@ -1447,7 +1450,7 @@ select{
 
           <div class="compare-grid">
 
-            <div class="compare-backend">
+            <div class="compare-backend legacy-panel">
               <div class="compare-backend-title">
                 <span class="compare-swatch ncnn"></span>
                 NCNN 운영 경로 (초록 박스 · 청록 관절)
@@ -1475,7 +1478,7 @@ select{
             <div class="compare-backend">
               <div class="compare-backend-title">
                 <span class="compare-swatch hailo"></span>
-                Hailo Shadow (자홍 박스 · 주황 관절)
+                Hailo 운영 경로 (자홍 박스 · 주황 관절)
               </div>
               <div class="compare-metrics">
                 <div class="compare-metric">
@@ -1516,15 +1519,15 @@ select{
           </div>
 
           <div class="notice shadow-notice" id="hailo-compare-note">
-            대시보드 영상을 보는 동안 Hailo Shadow를 실행합니다.
-            비교 결과는 Rule·GRU 입력이나 MQTT 경보에 사용하지 않습니다.
+            Hailo는 대시보드 연결 여부와 무관하게 상시 실행됩니다.
+            EdgeFall 확정·해제 이벤트는 기존 Pi4 MQTT 계약으로 전송합니다.
           </div>
 
         </div>
 
       </div>
 
-      <div class="panel">
+      <div class="panel legacy-panel">
 
         <div class="panel-head">
 
@@ -1633,7 +1636,7 @@ select{
       </div>
 
 
-      <div class="panel">
+      <div class="panel legacy-panel">
 
         <div class="panel-head">
 
@@ -1788,7 +1791,7 @@ select{
         </h2>
 
         <div class="section-note">
-          Camera Module 3 · YuNet + SFace · 등록에는 관리 코드 불필요
+          Camera Module 3 · 자동 다각도 YuNet + SFace · 등록에는 관리 코드 불필요
         </div>
 
       </div>
@@ -1815,24 +1818,6 @@ select{
 
         </select>
 
-        <select
-          id="face-view"
-          required>
-
-          <option value="front">
-            정면
-          </option>
-
-          <option value="left">
-            왼쪽
-          </option>
-
-          <option value="right">
-            오른쪽
-          </option>
-
-        </select>
-
         <input
           id="face-name"
           maxlength="40"
@@ -1843,7 +1828,7 @@ select{
           id="face-submit"
           class="btn primary"
           type="submit">
-          얼굴 등록
+          자동 다각도 등록
         </button>
 
       </form>
@@ -1851,7 +1836,7 @@ select{
       <div
         id="face-status"
         class="form-status">
-        이름과 방향을 선택하고 한 명만 카메라를 바라봐 주세요.
+        이름을 입력하고 시작하면 정면에서 양쪽으로 천천히 고개를 돌려 주세요.
       </div>
 
       <details class="face-management">
@@ -2338,24 +2323,12 @@ function renderSummary(
       "summary-gru"
     );
 
-  if(
-    data.temporal_fall_enabled
-  ){
-
-    gru.textContent =
-      "Shadow";
-
-    gru.className =
-      "summary-value info";
-
+  if(data.fall_backend === "hailo_edgefall"){
+    gru.textContent = "운영";
+    gru.className = "summary-value good";
   }else{
-
-    gru.textContent =
-      "OFF";
-
-    gru.className =
-      "summary-value warn";
-
+    gru.textContent = "OFF";
+    gru.className = "summary-value warn";
   }
 
 
@@ -2465,7 +2438,7 @@ function renderCamera(
       "badge danger";
 
     badge.textContent =
-      "RULE 낙상";
+      "EDGEFALL 낙상";
 
   }else if(suspectedFall){
 
@@ -2473,7 +2446,7 @@ function renderCamera(
       "badge warning";
 
     badge.textContent =
-      "RULE 의심";
+      "EDGEFALL 의심";
 
   }else if(gruShadowAlert){
 
@@ -2538,7 +2511,7 @@ function renderCamera(
       "badge person";
 
     ai.textContent =
-      `${poseBackend} Pose`;
+      "HAILO · EdgeFall";
 
   }else if(
     camera.face_enabled
@@ -2769,45 +2742,45 @@ function renderFallAI(
   document.getElementById(
     "compare-hailo-person"
   ).textContent =
-    `${camera.hailo_shadow_person_count || 0}명`;
+    `${camera.person_count || 0}명`;
 
   document.getElementById(
     "compare-hailo-fps"
   ).textContent =
-    `${Number(camera.hailo_shadow_effective_fps || 0).toFixed(1)}`;
+    `${Number(camera.pose_effective_fps || 0).toFixed(1)}`;
 
   document.getElementById(
     "compare-hailo-latency"
   ).textContent =
-    `${Number(camera.hailo_shadow_inference_ms || 0).toFixed(1)}`
-    + ` / ${Number(camera.hailo_shadow_inference_p95_ms || 0).toFixed(1)} ms`;
+    `${Number(camera.pose_inference_ms || 0).toFixed(1)}`
+    + ` / ${Number(camera.pose_inference_p95_ms || 0).toFixed(1)} ms`;
 
   document.getElementById(
     "compare-hailo-keypoints"
   ).textContent =
-    percent(camera.hailo_shadow_visible_keypoint_ratio || 0);
+    percent(camera.pose_visible_keypoint_ratio || 0);
 
   document.getElementById(
     "compare-hailo-model"
   ).textContent =
-    camera.hailo_shadow_model || "-";
+    camera.fall_model || "-";
 
   document.getElementById(
     "compare-edgefall-state"
   ).textContent =
-    stateLabel(camera.edgefall_shadow_state);
+    stateLabel(camera.edgefall_state);
 
   document.getElementById(
     "compare-edgefall-probability"
   ).textContent =
-    percent(camera.edgefall_shadow_probability || 0);
+    percent(camera.edgefall_probability || 0);
 
   document.getElementById(
     "compare-edgefall-track"
   ).textContent =
-    camera.edgefall_shadow_best_track_id == null
+    camera.edgefall_best_track_id == null
       ? "-"
-      : `#${camera.edgefall_shadow_best_track_id}`;
+      : `#${camera.edgefall_best_track_id}`;
 
   const hailoCompareBadge =
     document.getElementById(
@@ -2820,16 +2793,13 @@ function renderFallAI(
     );
 
   const hailoState =
-    String(
-      camera.hailo_shadow_state
-      || "disabled"
-    );
+    camera.error ? "error" : camera.pose_effective_fps > 0 ? "running" : "warming";
 
   if(hailoState === "running"){
     hailoCompareBadge.className = "badge online";
-    hailoCompareBadge.textContent = camera.hailo_shadow_same_frame
-      ? "동일 프레임 · 실행 중"
-      : "실행 중 · 동기화 대기";
+    hailoCompareBadge.textContent = camera.fall_mqtt_enabled
+      ? "운영 · MQTT 전송"
+      : "운영 · MQTT 비활성";
   }else if(hailoState === "error"){
     hailoCompareBadge.className = "badge danger";
     hailoCompareBadge.textContent = "Hailo 오류";
@@ -2843,19 +2813,18 @@ function renderFallAI(
       : "비활성";
   }
 
-  if(camera.hailo_shadow_error){
+  if(camera.error){
     hailoCompareNote.textContent =
-      `Hailo Shadow 오류: ${camera.hailo_shadow_error}`;
-  }else if(camera.edgefall_shadow_error){
+      `Hailo 오류: ${camera.error}`;
+  }else if(camera.edgefall_error){
     hailoCompareNote.textContent =
-      `EdgeFall Shadow 오류: ${camera.edgefall_shadow_error}`;
+      `EdgeFall 오류: ${camera.edgefall_error}`;
   }else{
     hailoCompareNote.textContent =
-      "Dahua 최신 프레임을 독립 주기로 분석합니다. "
-      + `${camera.hailo_shadow_model || "Hailo Pose"} · `
-      + `${camera.edgefall_shadow_profile || "EdgeFall 준비 중"} · `
-      + "결과는 화면과 계측에만 사용하며 "
-      + "Rule·GRU 입력 및 MQTT 경보에는 사용하지 않습니다.";
+      "Dahua 최신 프레임을 Hailo에서 한 번만 분석합니다. "
+      + `${camera.fall_model || "Hailo Pose"} · `
+      + `${camera.edgefall_profile || "EdgeFall 준비 중"} · `
+      + "확정/해제는 표준 fall_* MQTT 이벤트로 전송합니다.";
   }
 
 
@@ -3657,24 +3626,35 @@ document
           "face-name"
         ).value.trim();
 
-      const view =
-        document.getElementById(
-          "face-view"
-        ).value;
-
-
       button.disabled =
         true;
 
       button.textContent =
-        "수집 중";
+        "10초 촬영 중";
+
+      const startedAt = Date.now();
+      const enrollmentGuide = setInterval(
+        () => {
+          const elapsed = (Date.now() - startedAt) / 1000;
+          if(elapsed < 2.5){
+            faceStatus.textContent = "정면을 바라봐 주세요.";
+          }else if(elapsed < 5.5){
+            faceStatus.textContent = "고개를 한쪽으로 천천히 돌려 주세요.";
+          }else if(elapsed < 8.5){
+            faceStatus.textContent = "반대쪽으로 천천히 돌려 주세요.";
+          }else{
+            faceStatus.textContent = "다시 정면을 바라봐 주세요.";
+          }
+        },
+        250
+      );
 
 
       try{
 
         const person =
           await faceRequest(
-            "/api/faces/enroll",
+            "/api/faces/enroll/auto",
             {
               method:"POST",
 
@@ -3689,10 +3669,7 @@ document
                     cameraId,
 
                   name:
-                    name,
-
-                  view:
-                    view
+                    name
                 })
             }
           );
@@ -3700,8 +3677,8 @@ document
 
         faceStatus.textContent =
           `${person.name} · `
-          + `${viewLabels[person.view]} · `
-          + `${person.samples}장 등록 완료`;
+          + `정면 ${person.samples.front}장 · `
+          + `양쪽 ${person.samples.left}/${person.samples.right}장 등록 완료`;
 
 
         await refreshFaces();
@@ -3714,11 +3691,13 @@ document
 
       }finally{
 
+        clearInterval(enrollmentGuide);
+
         button.disabled =
           false;
 
         button.textContent =
-          "얼굴 등록";
+          "자동 다각도 등록";
 
       }
 

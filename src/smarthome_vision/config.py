@@ -42,14 +42,10 @@ def load_config(path: str | Path) -> dict[str, Any]:
     data = _expand(data)
     data["project_root"] = str(project_root)
 
-    model_path = Path(data["inference"]["model"])
-    if not model_path.is_absolute():
-        data["inference"]["model"] = str(project_root / model_path)
     fall_config = data.get("fall_detection", {})
     if fall_config.get("enabled", False):
         for model_key in (
             "model",
-            "hailo_model",
             "hailo_postprocess",
             "hailo_whole_buffer",
         ):
@@ -58,38 +54,11 @@ def load_config(path: str | Path) -> dict[str, Any]:
             pose_model_path = Path(fall_config[model_key])
             if not pose_model_path.is_absolute():
                 fall_config[model_key] = str(project_root / pose_model_path)
-
-        temporal_config = fall_config.get(
-            "temporal",
-            {},
-        )
-
-        if temporal_config.get(
-            "enabled",
-            False,
-        ):
-            temporal_model_path = Path(
-                temporal_config[
-                    "model"
-                ]
-            )
-
-            if not temporal_model_path.is_absolute():
-                temporal_config[
-                    "model"
-                ] = str(
-                    project_root
-                    / temporal_model_path
-                )
-
-            observation_log = temporal_config.get(
-                "observation_log",
-                {},
-            )
-            if observation_log.get("path"):
-                log_path = Path(observation_log["path"])
-                if not log_path.is_absolute():
-                    observation_log["path"] = str(project_root / log_path)
+        edgefall_config = fall_config.get("edgefall", {})
+        if edgefall_config.get("library"):
+            library_path = Path(edgefall_config["library"])
+            if not library_path.is_absolute():
+                edgefall_config["library"] = str(project_root / library_path)
 
     face_config = data.get("face_recognition", {})
     if face_config.get("enabled", False):

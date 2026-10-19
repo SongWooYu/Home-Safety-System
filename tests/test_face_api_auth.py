@@ -16,6 +16,7 @@ class FakePipeline:
         self.face_registry = object()
         self.face_error = None
         self.enroll_calls = []
+        self.auto_enroll_calls = []
         self.deleted = []
         self.stream_calls = []
 
@@ -37,6 +38,16 @@ class FakePipeline:
             "view": view,
             "views": [view],
             "samples": 5,
+        }
+
+    def enroll_face_auto(self, camera_id, name):
+        self.auto_enroll_calls.append((camera_id, name))
+        return {
+            "id": "person-1",
+            "name": name,
+            "mode": "guided_multi_angle",
+            "views": ["front", "left", "right"],
+            "samples": {"front": 4, "left": 3, "right": 3},
         }
 
     def registered_faces(self):
@@ -87,6 +98,13 @@ class FaceApiAuthorizationTest(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(self.pipeline.enroll_calls, [("cam3", "홍길동", "front")])
 
+        automatic = self.client.post(
+            "/api/faces/enroll/auto",
+            json={"camera_id": "cam3", "name": "홍길동"},
+        )
+        self.assertEqual(automatic.status_code, 201)
+        self.assertEqual(self.pipeline.auto_enroll_calls, [("cam3", "홍길동")])
+
     def test_face_list_and_delete_still_require_admin_token(self):
         self.assertEqual(self.client.get("/api/faces").status_code, 401)
         self.assertEqual(self.client.delete("/api/faces/person-1").status_code, 401)
@@ -127,28 +145,24 @@ class FaceApiAuthorizationTest(unittest.TestCase):
         token_input = html.split('id="face-token"', 1)[1].split(">", 1)[0]
         self.assertNotIn("required", token_input)
 
-    def test_dashboard_uses_runtime_temporal_threshold(self):
+    def test_dashboard_uses_guided_multi_angle_enrollment(self):
         response = self.client.get("/")
 
         html = response.get_data(as_text=True)
-        self.assertIn("bestTrack.threshold", html)
-        self.assertNotIn("score >= .92", html)
+        self.assertIn("자동 다각도 등록", html)
+        self.assertIn("/api/faces/enroll/auto", html)
+        self.assertNotIn('id="face-view"', html)
 
-    def test_dashboard_distinguishes_connection_rule_and_gru_states(self):
+    def test_dashboard_shows_hailo_edgefall_as_the_only_operational_path(self):
         response = self.client.get("/")
 
         html = response.get_data(as_text=True)
         self.assertIn("입력 버퍼 age", html)
-        self.assertIn("RULE 낙상", html)
-        self.assertIn("GRU SHADOW 기준 충족", html)
-        self.assertIn("MQTT 미전송", html)
-        self.assertIn("자세 기하 점수는 낙상 확률이 아니며", html)
-        self.assertIn("Pose Backend 병렬 Shadow 비교", html)
-        self.assertIn("Hailo Shadow (자홍 박스 · 주황 관절)", html)
-        self.assertIn("camera.hailo_shadow_same_frame", html)
-        self.assertIn("camera.hailo_shadow_model", html)
-        self.assertIn("camera.edgefall_shadow_probability", html)
-        self.assertIn("EdgeFall Shadow 감지", html)
+        self.assertIn("EDGEFALL 낙상", html)
+        self.assertIn("EDGEFALL ACTIVE · MQTT 전송", html)
+        self.assertIn("Hailo 낙상 인식 운영 상태", html)
+        self.assertIn("Hailo 운영 경로 (자홍 박스 · 주황 관절)", html)
+        self.assertIn("camera.edgefall_probability", html)
 
 
 if __name__ == "__main__":

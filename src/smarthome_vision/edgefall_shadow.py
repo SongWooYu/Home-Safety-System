@@ -36,13 +36,17 @@ class _Track(ctypes.Structure):
 STATE_NAMES = ("normal", "suspected", "fallen", "recovering")
 
 
-class EdgeFallShadow:
-    """ctypes adapter for EdgeFallKit's Hailo-specific temporal profile."""
+class EdgeFallRuntime:
+    """Production adapter for EdgeFallKit's Hailo-specific temporal profile.
+
+    The native ABI keeps its historical ``edgefall_shadow_*`` symbol names so
+    the validated binary remains reproducible. MQTT policy lives in Python.
+    """
 
     def __init__(self, library_path: str, keypoint_confidence: float = 0.25):
         path = Path(library_path)
         if not path.is_file():
-            raise FileNotFoundError(f"EdgeFall shadow library is missing: {path}")
+            raise FileNotFoundError(f"EdgeFall runtime library is missing: {path}")
 
         self._library = ctypes.CDLL(str(path))
         self._library.edgefall_shadow_create.argtypes = [ctypes.c_float]
@@ -66,7 +70,7 @@ class EdgeFallShadow:
             ctypes.c_float(keypoint_confidence)
         )
         if not self._handle:
-            raise RuntimeError("EdgeFall shadow tracker initialization failed")
+            raise RuntimeError("EdgeFall runtime tracker initialization failed")
         raw_profile = self._library.edgefall_shadow_profile()
         self.profile = raw_profile.decode("utf-8") if raw_profile else "edgefallkit"
 
@@ -83,7 +87,7 @@ class EdgeFallShadow:
         timestamp_sec: float,
     ) -> list[dict[str, Any]]:
         if not self._handle:
-            raise RuntimeError("EdgeFall shadow tracker is closed")
+            raise RuntimeError("EdgeFall runtime tracker is closed")
         width = max(1.0, float(frame_width))
         height = max(1.0, float(frame_height))
 
@@ -101,7 +105,7 @@ class EdgeFallShadow:
             for x, y, confidence in pose["keypoints"]:
                 flat.extend((float(x) / width, float(y) / height, float(confidence)))
             if len(flat) != 51:
-                raise ValueError("EdgeFall shadow requires exactly 17 COCO keypoints")
+                raise ValueError("EdgeFall requires exactly 17 COCO keypoints")
             values[index].keypoints[:] = flat
 
         capacity = max(16, len(poses) + 16)
@@ -159,8 +163,12 @@ class EdgeFallShadow:
             )
         return tracks
 
-    def __enter__(self) -> "EdgeFallShadow":
+    def __enter__(self) -> "EdgeFallRuntime":
         return self
 
     def __exit__(self, *_args: object) -> None:
         self.close()
+
+
+# Historical research scripts may still import the former class name.
+EdgeFallShadow = EdgeFallRuntime

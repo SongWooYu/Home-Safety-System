@@ -145,6 +145,20 @@ def create_app(pipeline: VisionPipeline) -> Flask:
         except RuntimeError as exc:
             return jsonify({"error": str(exc)}), 503
 
+    @app.post("/api/faces/enroll/auto")
+    def enroll_face_auto():
+        payload = request.get_json(silent=True) or {}
+        try:
+            person = pipeline.enroll_face_auto(
+                str(payload.get("camera_id", "")),
+                str(payload.get("name", "")),
+            )
+            return jsonify(person), 201
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 503
+
     @app.delete("/api/faces/<person_id>")
     def delete_face(person_id: str):
         if not face_admin_authorized():
