@@ -5,6 +5,10 @@ project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 model_dir="$project_dir/runtime/models/face"
 mkdir -p "$model_dir"
 
+if [ ! -f /usr/share/fonts/truetype/nanum/NanumGothic.ttf ]; then
+  echo "한글 영상 표시에 필요한 글꼴: sudo apt-get install fonts-nanum" >&2
+fi
+
 curl -fL --retry 3 \
   -o "$model_dir/face_detection_yunet_2023mar.onnx" \
   "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"

@@ -4,6 +4,9 @@
 
 대상: Raspberry Pi 5 8GB + Raspberry Pi AI HAT+ (Hailo-8, 26 TOPS)
 
+같은 날 후속 UI 개선: [대시보드·한글·전체 화각](VISION_DASHBOARD_2026-10-19.md).
+기존 `준비 중/0%` 대신 무인·관절 부족·초기 관측을 구분한다. 모델/낙상 정책 변경 없음.
+
 운영 카메라: Dahua IP Camera(낙상), Camera Module 3(얼굴)
 
 ## 1. 결론부터

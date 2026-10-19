@@ -150,19 +150,22 @@ class FaceApiAuthorizationTest(unittest.TestCase):
 
         html = response.get_data(as_text=True)
         self.assertIn("자동 다각도 등록", html)
-        self.assertIn("/api/faces/enroll/auto", html)
+        with self.client.get("/static/dashboard.js") as response:
+            script = response.get_data(as_text=True)
+        self.assertIn("/api/faces/enroll/auto", script)
         self.assertNotIn('id="face-view"', html)
 
     def test_dashboard_shows_hailo_edgefall_as_the_only_operational_path(self):
         response = self.client.get("/")
 
         html = response.get_data(as_text=True)
-        self.assertIn("입력 버퍼 age", html)
-        self.assertIn("EDGEFALL 낙상", html)
-        self.assertIn("EDGEFALL ACTIVE · MQTT 전송", html)
-        self.assertIn("Hailo 낙상 인식 운영 상태", html)
-        self.assertIn("Hailo 운영 경로 (자홍 박스 · 주황 관절)", html)
-        self.assertIn("camera.edgefall_probability", html)
+        self.assertIn("Hailo YOLOv8s-Pose + EdgeFall", html)
+        self.assertNotIn("Rule Detector", html)
+        self.assertNotIn("Temporal GRU", html)
+        self.assertIn('id="alarm-banner"', html)
+        self.assertIn('id="last-fall"', html)
+        with self.client.get("/static/dashboard.css") as response:
+            self.assertEqual(response.status_code, 200)
 
 
 if __name__ == "__main__":

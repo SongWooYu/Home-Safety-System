@@ -37,6 +37,9 @@ face_recognition:
   # 움직이는 얼굴 박스가 따라오도록 5 Hz로 분석한다.
   analysis_fps: 5
 
+  # fonts-nanum: DroidSansFallback에는 완성형 한글 글리프가 없다.
+  label_font: /usr/share/fonts/truetype/nanum/NanumGothic.ttf
+
   match_threshold: 0.45
   detection_width: 640
   min_face_size: 70
@@ -164,7 +167,7 @@ cameras:
     decode_height:
       540
 
-    # Dahua는 사람 수와 무관하게 GRU 시간축과 같은 10 FPS로 전송한다.
+    # 분석은 15 FPS 목표, 개발 화면 전송은 별도로 10 FPS로 제한한다.
     # 640x360/JPEG70보다 선명하게 하되 MJPEG 전송 큐 누적은 줄인다.
     stream_width:
       960

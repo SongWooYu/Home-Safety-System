@@ -48,6 +48,7 @@ def create_app(pipeline: VisionPipeline) -> Flask:
             "index.html",
             cameras=list(pipeline.workers.keys()),
             face_cameras=face_cameras,
+            enrollment_seconds=max(6.0, float(pipeline.config.get("face_recognition", {}).get("enrollment_seconds", 10.0))),
         )
 
     @app.get("/stream/<camera_id>")

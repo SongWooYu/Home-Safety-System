@@ -1,3 +1,4 @@
 # Raspberry Pi OS의 Picamera2/OpenCV/Flask/Numpy/Paho-MQTT/GStreamer/HailoRT를
 # 재사용합니다. venv는 --system-site-packages로 만듭니다.
 # 운영 낙상 경로는 Hailo만 사용하므로 ncnn wheel은 설치하지 않습니다.
+# 영상 한글 이름: sudo apt-get install fonts-nanum

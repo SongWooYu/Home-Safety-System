@@ -14,6 +14,7 @@ Raspberry Pi 4가 MQTT·이벤트 저장·경보·최종 화면을 담당하는 
 
 ## 문서
 
+- [새 비전 대시보드·한글·카메라 최대 화각](docs/VISION_DASHBOARD_2026-10-19.md)
 - [구현 및 설정 통합 기록](docs/IMPLEMENTATION_HISTORY.md)
 - [Hailo YOLOv8 + EdgeFall 운영 전환 보고서](docs/HAILO_EDGEFALL_PRODUCTION_2026-10-19.md)
 - [자원 제약 기반 시스템 전면 재검토](docs/ARCHITECTURE_REVIEW.md)
@@ -39,6 +40,7 @@ journalctl -u smarthome-vision.service -f
 
 Dahua URL, MQTT 자격 증명, 얼굴 목록·삭제용 관리 키는 Git에서 제외된 `.env`에 둡니다.
 얼굴 모델 최초 설치는 `./scripts/setup_face_models.sh`로 수행합니다.
+영상 한글 표시는 `sudo apt-get install -y fonts-nanum`으로 글꼴을 설치합니다.
 Hailo YOLOv8s-Pose와 EdgeFall 네이티브 runtime은 upstream 조건을 확인한 뒤 다음처럼
 고정 checksum/commit으로 재현합니다.
 

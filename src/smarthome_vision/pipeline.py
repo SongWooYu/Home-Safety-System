@@ -12,6 +12,7 @@ import numpy as np
 
 from .events import EventBus
 from .face_registry import FaceRegistry
+from .presentation import analysis_readiness
 from .inference import HailoPoseEstimator
 from .sources import PiCameraSource, RtspSource
 from .sources.base import CameraSource
@@ -94,10 +95,12 @@ def draw_face_label(
             face_font.putText(
                 frame,
                 label,
-                origin,
+                # FreeType with bottomLeftOrigin=False places the glyph below
+                # this origin; adapt to the baseline used by cv2.putText.
+                (origin[0], origin[1] - 21),
                 21,
                 color,
-                1,
+                -1,
                 cv2.LINE_AA,
                 False,
             )
@@ -293,7 +296,7 @@ class CameraWorker:
             str(
                 face_config.get(
                     "label_font",
-                    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+                    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
                 )
             )
         )
@@ -1210,6 +1213,10 @@ class CameraWorker:
             label = f"{display_name} {face['similarity']:.2f}"
             label_origin = (x1, min(frame.shape[0] - 8, y2 + 26))
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            # A solid label background keeps Korean glyphs legible over video.
+            label_width = min(frame.shape[1] - x1, len(label) * 19 + 12)
+            cv2.rectangle(frame, (x1, label_origin[1] - 24),
+                          (x1 + label_width, label_origin[1] + 5), (22, 27, 32), -1)
             draw_face_label(
                 frame,
                 label,
@@ -1218,20 +1225,8 @@ class CameraWorker:
                 self._face_font,
             )
 
-        status = "AI ON" if self.ai_enabled else "MONITOR"
-        # Keep the Dahua OSD clock at the top-right visible. It is useful for
-        # checking true camera-to-screen delay during exhibition setup.
-        header_width = min(frame.shape[1], 560)
-        cv2.rectangle(frame, (0, 0), (header_width, 42), (18, 22, 30), -1)
-        cv2.putText(
-            frame,
-            f"{self.label} | {status} | {self._capture_fps:.1f} FPS",
-            (12, 28),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.62,
-            (245, 245, 245),
-            2,
-        )
+        # Camera names/FPS live outside the video. Do not obscure faces or the
+        # Dahua clock with a duplicate, rasterised header.
 
         if hailo_shadow_poses:
             legend = "NCNN: GREEN/CYAN | HAILO SHADOW: MAGENTA/ORANGE"
@@ -1255,17 +1250,14 @@ class CameraWorker:
 
         if getattr(self, "edgefall_shadow", None) is not None or edgefall_shadow_tracks:
             best_edgefall = select_edgefall_track(edgefall_shadow_tracks)
-            if best_edgefall is None:
-                edgefall_state = "warming"
-                edgefall_text = "EDGEFALL | NO ACTIVE TRACK"
-            else:
-                edgefall_state = str(best_edgefall.get("state", "normal"))
-                edgefall_text = (
-                    "EDGEFALL | "
-                    f"TRACK #{best_edgefall['track_id']} | "
-                    f"{edgefall_state.upper()} | "
-                    f"P {float(best_edgefall.get('temporal_probability', 0.0)):.0%}"
-                )
+            if best_edgefall is None or best_edgefall.get("state") == "normal":
+                return
+            edgefall_state = str(best_edgefall.get("state", "normal"))
+            edgefall_text = (
+                "EDGEFALL | "
+                f"TRACK #{best_edgefall['track_id']} | "
+                f"{edgefall_state.upper()}"
+            )
 
             reserved_bottom = 40 if hailo_shadow_poses else 6
             bar_bottom = max(84, frame.shape[0] - reserved_bottom)
@@ -1839,6 +1831,8 @@ class CameraWorker:
                 or key == "rule_mode"
             ):
                 status.pop(key, None)
+        status["analysis"] = analysis_readiness(status)
+        status["camera_view"] = getattr(self.source, "view_info", None)
         return status
 
 
