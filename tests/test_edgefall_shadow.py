@@ -56,11 +56,11 @@ class EdgeFallShadowTest(unittest.TestCase):
         self.assertGreaterEqual(tracks[0]["hip_y"], 0.0)
         self.assertLessEqual(tracks[0]["hip_y"], 1.0)
 
-    def test_profile_identifies_foreshortened_persistence_policy(self):
+    def test_profile_identifies_separate_geometry_and_model_units(self):
         with EdgeFallShadow(LIBRARY) as shadow:
             self.assertEqual(
                 shadow.profile,
-                "edgefallkit-hailo8-yolov8s-pose-v1+foreshortened-persistence-v4",
+                "edgefallkit-hailo8-yolov8s-pose-v1+units-separated-v6",
             )
 
     def test_static_lying_posture_cannot_originate_fall(self):
@@ -112,7 +112,7 @@ class EdgeFallShadowTest(unittest.TestCase):
         self.assertNotIn("fallen", states)
         self.assertFalse(any(events))
 
-    def test_strong_rapid_horizontal_drop_confirms_before_track_loss(self):
+    def test_strong_drop_cannot_bypass_negative_temporal_gate(self):
         states: list[str] = []
         events: list[bool] = []
         with EdgeFallShadow(LIBRARY) as shadow:
@@ -141,10 +141,13 @@ class EdgeFallShadowTest(unittest.TestCase):
             states.append(tracks[0]["state"])
             events.append(tracks[0]["fall_event"])
 
-        self.assertEqual(states[-1], "fallen")
-        self.assertTrue(events[-1])
+        self.assertEqual(states[-1], "suspected")
+        self.assertTrue(tracks[0]["geometry_candidate"])
+        self.assertFalse(tracks[0]["temporal_positive"])
+        self.assertEqual(tracks[0]["decision_reason"], "model_not_confirmed")
+        self.assertFalse(events[-1])
 
-    def test_rapid_drop_then_horizontal_posture_confirms_in_same_window(self):
+    def test_windowed_impact_cannot_bypass_negative_temporal_gate(self):
         states: list[str] = []
         events: list[bool] = []
         with EdgeFallShadow(LIBRARY) as shadow:
@@ -192,10 +195,12 @@ class EdgeFallShadowTest(unittest.TestCase):
             states.append(tracks[0]["state"])
             events.append(tracks[0]["fall_event"])
 
-        self.assertEqual(states[-2:], ["suspected", "fallen"])
-        self.assertTrue(events[-1])
+        self.assertEqual(states[-2:], ["suspected", "suspected"])
+        self.assertTrue(tracks[0]["geometry_candidate"])
+        self.assertFalse(tracks[0]["temporal_positive"])
+        self.assertFalse(events[-1])
 
-    def test_foreshortened_fall_confirms_after_horizontal_persistence(self):
+    def test_horizontal_persistence_confirms_only_with_positive_temporal_gate(self):
         states: list[str] = []
         events: list[bool] = []
         with EdgeFallShadow(LIBRARY) as shadow:
@@ -226,9 +231,26 @@ class EdgeFallShadowTest(unittest.TestCase):
                 )
                 states.append(tracks[0]["state"])
                 events.append(tracks[0]["fall_event"])
+                if tracks[0]["fall_event"]:
+                    self.assertTrue(tracks[0]["temporal_positive"])
+                    self.assertTrue(tracks[0]["geometry_candidate"])
 
+        # With the corrected model input this fixture becomes learned-positive.
+        # Negative-gate policy is tested independently in native_edgefall_policy.
         self.assertEqual(states[-1], "fallen")
-        self.assertTrue(any(events))
+        self.assertEqual(sum(events), 1)
+
+    def test_changed_visible_hip_does_not_create_motion(self):
+        with EdgeFallShadow(LIBRARY) as shadow:
+            for frame in range(20):
+                shadow.update([self._pose(hip_y=330, horizontal=False)], 640, 640, frame / 15)
+            pose = self._pose(hip_y=430, horizontal=True, box=[70, 250, 570, 450])
+            pose["keypoints"][11][2] = 0.0
+            track = shadow.update([pose], 640, 640, 20 / 15)[0]
+            self.assertEqual(track["state"], "normal")
+            self.assertFalse(track["motion_continuous"])
+            self.assertEqual(track["hip_drop_speed"], 0)
+            self.assertEqual(track["decision_reason"], "pose_reacquired")
 
     def test_quick_foreshortened_bend_recovers_before_confirmation(self):
         states: list[str] = []

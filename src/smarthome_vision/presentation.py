@@ -33,5 +33,21 @@ def analysis_readiness(status: dict[str, Any]) -> dict[str, Any]:
             code, label, detail = "collecting", "초기 움직임 관측", "약 3.1초의 움직임을 분석합니다. 초기 점수는 관측이 쌓이며 바뀔 수 있습니다."
         else:
             code, label, detail = "analyzing", "움직임 분석 중", "움직임 점수와 하강·자세 변화를 함께 확인합니다. 점수만으로 경보를 확정하지 않습니다."
+    reason = selected.get("decision_reason", "normal") if selected else "no_track"
+    reasons = {
+        "temporal_and_geometry": "모델·동작 조건 모두 충족",
+        "alarm_latched": "확정된 경보 유지 중",
+        "model_not_confirmed": "동작 후보 · 모델 미동의",
+        "motion_candidate": "움직임 의심 · 확정 전",
+        "motion_not_confirmed": "모델 양성 · 동작 조건 미충족",
+        "insufficient_pose": "관절 부족 · 판정 보류",
+        "pose_reacquired": "관절 다시 연결 · 속도 판정 보류",
+        "normal": "낙상 확정 조건 미충족",
+        "no_track": "판정 대상 없음",
+    }
     return {"code": code, "label": label, "detail": detail,
-            "motion_score": score, "observed_frames": frames}
+            "motion_score": score, "observed_frames": frames,
+            "decision_reason": reason, "decision_label": reasons.get(reason, reason),
+            "temporal_positive": bool(selected and selected.get("temporal_positive")),
+            "geometry_candidate": bool(selected and selected.get("geometry_candidate")),
+            "temporal_threshold": 0.75}

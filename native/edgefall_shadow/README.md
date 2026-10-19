@@ -18,17 +18,28 @@ the Python adapter owns the production `fall_*` MQTT contract. Since
 Rule/GRU runtime is retired.
 
 `strict_confirmation.patch` is a local deployment policy layered on the pinned
-source. It normalizes Hailo hip Y to the temporal model's `0..1` coordinate
-contract and prevents a temporal-positive frame from creating a fall by
-itself. The normal path requires rapid descent followed by horizontal posture,
-sufficient hip drop and temporal confirmation. `windowed-impact-v3` added a
-high-specificity staged-impact path: a rapid descent (speed `>= 0.50/s` and
-normalized hip drop `>= 0.04`) must be followed, within the existing 1.5-second
-candidate window, by a horizontal final pose (torso angle `>= 65°` and box
-aspect ratio `>= 1.50`). The cues do not have to peak on the same Hailo frame.
-`foreshortened-persistence-v4` additionally covers side/back falls that move in
-camera depth: after the normal rapid-motion arming step, torso angle `>= 75°`
-and box aspect ratio `>= 0.90` must remain continuous for `0.80s`. The bridge
-is now used by the production adapter. Historical `shadow` path and ABI names
-are retained so the pinned build stays reproducible; they no longer describe
-the runtime policy.
+source. Current profile is `units-separated-v6`, ABI version 2. It normalizes
+hip Y for geometry ONLY; the frozen Hailo MLP expects pixel hip Y, not 0..1.
+`temporalFrameFrom()` supplies the 640-space pixel value to feature 51 because
+the frozen scaler's bin means are about 301–319. Native feature-contract and
+tracker/classifier parity tests guard this distinction. The v5 profile mistakenly
+sent normalized Y to both consumers and missed all events in the user's trial.
+The policy still requires BOTH a learned temporal positive and a geometric
+candidate for every new fall event. Temporal output alone cannot alert either.
+
+Earlier v3/v4 impact and 0.8-second horizontal-persistence paths bypassed the
+temporal gate. The observed 8 recent confirmed events were all temporal-negative;
+these were not proof of successful learned classification. Those paths are now
+diagnostic candidates only unless the temporal gate also agrees. Do not call
+these geometry conditions high-specificity without a labeled evaluation.
+
+A missing pose or a change in visible hip support resets unconfirmed motion
+evidence. It never silently clears an already confirmed alarm. Raw pose features
+and the learned weights/75% threshold remain unchanged. The bridge exposes
+`geometry_candidate` and `motion_continuous`; Python adds decision explanations.
+An ABI version check rejects older libraries instead of reading mismatched structs.
+
+Historical `shadow` path/function names remain for reproducible builds, not a
+second inference pipeline. The installer replaces the library atomically so a
+running service never maps a partially overwritten library. See
+[the v6 report](../../docs/EDGEFALL_FEATURE_UNITS_2026-10-19.md) for limitations and tests.

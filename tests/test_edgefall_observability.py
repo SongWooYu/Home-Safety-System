@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import unittest
+import threading
+import time
 from unittest.mock import patch
+from types import SimpleNamespace
+import numpy as np
 
 from smarthome_vision.pipeline import CameraWorker
 
@@ -34,6 +38,30 @@ def _track(state: str, *, fall_event: bool = False) -> dict:
 
 
 class EdgeFallObservabilityTest(unittest.TestCase):
+    def test_primary_tracks_survive_disabled_shadow_in_actual_ai_loop(self):
+        worker = CameraWorker(
+            {"id": "dahua", "type": "rtsp", "ai_enabled": True},
+            SimpleNamespace(), SimpleNamespace(estimate=lambda frame: []),
+            None, None, None, None, _EventBus(), 640, 360, 10, 80,
+            {"enabled": True, "analysis_fps": 15}, {}, 5,
+        )
+        track = {**_track("normal"), "visible": True, "valid": True}
+        def update(*args):
+            worker._stop.set()  # Finish this one iteration, including cleanup.
+            return [track]
+        worker.edgefall_shadow = SimpleNamespace(update=update, profile="test")
+        worker._latest_frame = np.zeros((540, 960, 3), dtype=np.uint8)
+        worker._latest_frame_seq = 1
+        worker._online = True
+        worker._last_frame_at = time.monotonic()
+        thread = threading.Thread(target=worker._ai_loop, daemon=True)
+        thread.start()
+        thread.join(timeout=2)
+        worker._stop.set()
+        thread.join(timeout=1)
+        self.assertIsNone(worker._error)
+        self.assertEqual(worker._edgefall_shadow_tracks, [track])
+
     def test_transitions_use_standard_mqtt_contract_and_normal_start_is_silent(self):
         worker = CameraWorker.__new__(CameraWorker)
         worker.camera_id = "dahua"

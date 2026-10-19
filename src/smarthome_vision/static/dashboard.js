@@ -135,6 +135,14 @@ function renderAlarm(data) {
     setText("analysis-detail", analysis.detail);
     setText("motion-score", analysis.motion_score == null ? "—" : percent(analysis.motion_score));
     setText("motion-score-note", analysis.motion_score == null ? "판정할 관절 데이터 없음" : analysis.code === "collecting" ? "초기 관측 점수" : "최종 경보와 별도");
+    setText("decision-label", analysis.decision_label || "판정 확인 중");
+    const profileTag = camera?.edgefall_profile?.endsWith("units-separated-v6") ? "v6 · 입력 단위 수정 · " : "";
+    setText("decision-gate", profileTag + (analysis.motion_score == null
+      ? "확정에는 모델 양성과 동작 조건이 모두 필요합니다."
+      : `모델 ${analysis.temporal_positive ? "양성" : "기준 미충족"} · 기준 75% 연속 3회 · 동작 후보 ${analysis.geometry_candidate ? "충족" : "미충족"}`));
+    setText("diagnostic-health", camera?.diagnostic_log_error
+      ? `기록 오류: ${camera.diagnostic_log_error}`
+      : camera?.diagnostic_logging ? `검증 수치 기록 중 · 누락 ${camera.diagnostic_records_dropped || 0}건 · 영상 저장 없음` : "검증 기록 꺼짐");
     $("analysis-dot").style.background = analysis.code === "pose_needed" ? "#bd8b2e" : "#087f70";
   }
   setText("diag-fps", `${number(camera?.pose_effective_fps)} FPS`);
@@ -177,7 +185,7 @@ function renderEvents(events) {
       const indicator = document.createElement("span"); indicator.className = "event-indicator";
       const copy = document.createElement("div");
       const title = document.createElement("strong"); title.textContent = eventLabels[event.event_type] || event.event_type;
-      const detail = document.createElement("small"); detail.textContent = `${event.camera_id === "dahua" ? "Dahua" : "Camera Module 3"}${event.details?.track_id ? ` · 사람 #${event.details.track_id}` : ""}${event.details?.reason === "track_lost" ? " · 추적 소실로 상태 해제" : ""}`;
+      const detail = document.createElement("small"); detail.textContent = `${event.camera_id === "dahua" ? "Dahua" : "Camera Module 3"}${event.details?.track_id ? ` · 사람 #${event.details.track_id}` : ""}${event.details?.reason === "track_lost" ? " · 추적 소실로 상태 해제" : ""}${event.details?.confirmation_policy ? ` · 모델 ${percent(event.confidence || 0)} · ${event.details.temporal_positive ? "모델 양성" : "모델 미동의"}` : ""}`;
       const time = document.createElement("time"); time.dateTime = event.timestamp; time.textContent = clock(event.timestamp);
       copy.append(title, detail); row.append(indicator, copy, time); list.append(row);
     }

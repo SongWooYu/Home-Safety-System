@@ -30,6 +30,8 @@ class _Track(ctypes.Structure):
         ("bbox_aspect_ratio", ctypes.c_float),
         ("hip_drop_speed", ctypes.c_float),
         ("hip_drop_distance", ctypes.c_float),
+        ("geometry_candidate", ctypes.c_int32),
+        ("motion_continuous", ctypes.c_int32),
     ]
 
 
@@ -49,6 +51,13 @@ class EdgeFallRuntime:
             raise FileNotFoundError(f"EdgeFall runtime library is missing: {path}")
 
         self._library = ctypes.CDLL(str(path))
+        abi = getattr(self._library, "edgefall_shadow_abi_version", None)
+        if abi is None:
+            raise RuntimeError("EdgeFall ABI is outdated; rebuild with setup_edgefall_shadow.sh")
+        abi.argtypes = []
+        abi.restype = ctypes.c_int
+        if abi() != 2:
+            raise RuntimeError("EdgeFall ABI mismatch; rebuild native library")
         self._library.edgefall_shadow_create.argtypes = [ctypes.c_float]
         self._library.edgefall_shadow_create.restype = ctypes.c_void_p
         self._library.edgefall_shadow_destroy.argtypes = [ctypes.c_void_p]
@@ -159,6 +168,18 @@ class EdgeFallRuntime:
                     "bbox_aspect_ratio": round(float(item.bbox_aspect_ratio), 4),
                     "hip_drop_speed": round(float(item.hip_drop_speed), 4),
                     "hip_drop_distance": round(float(item.hip_drop_distance), 4),
+                    "geometry_candidate": bool(item.geometry_candidate),
+                    "motion_continuous": bool(item.motion_continuous),
+                    "decision_reason": (
+                        "temporal_and_geometry" if item.fall_event
+                        else "alarm_latched" if item.fall_detected
+                        else "insufficient_pose" if not item.valid or item.missed
+                        else "pose_reacquired" if not item.motion_continuous
+                        else "model_not_confirmed" if item.geometry_candidate and not item.temporal_positive
+                        else "motion_candidate" if state == "suspected"
+                        else "motion_not_confirmed" if item.temporal_positive
+                        else "normal"
+                    ),
                 }
             )
         return tracks

@@ -118,6 +118,9 @@ cp "$SOURCE/platforms/jetson/main/temporal_model_weights_yolov8m_int8.h" "$BUILD
 patch --batch --forward -d "$BUILD" -p1 \
     < "$ROOT/native/edgefall_shadow/strict_confirmation.patch"
 
+# Never truncate a shared library still mapped by the running service.
+OUT_TMP=$(mktemp "$OUT.XXXXXX")
+trap 'rm -f "$OUT_TMP"' EXIT HUP INT TERM
 c++ -std=c++17 -O3 -DNDEBUG -fPIC -shared \
     -I"$BUILD" \
     "$ROOT/native/edgefall_shadow/edgefall_c_api.cpp" \
@@ -125,7 +128,10 @@ c++ -std=c++17 -O3 -DNDEBUG -fPIC -shared \
     "$BUILD/pose.cpp" \
     "$BUILD/fall_detector.cpp" \
     "$BUILD/temporal_classifier.cpp" \
-    -o "$OUT"
+    -o "$OUT_TMP"
+chmod 0755 "$OUT_TMP"
+mv "$OUT_TMP" "$OUT"
+trap - EXIT HUP INT TERM
 
 echo "Built $OUT"
 sha256sum "$OUT"

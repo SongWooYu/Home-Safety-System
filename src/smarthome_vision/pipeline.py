@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import datetime, timezone
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -317,6 +318,19 @@ class CameraWorker:
         self._pose_state = "unknown"
 
         edgefall_config = fall_config.get("edgefall", {})
+        self._diagnostic_log = None
+        self._diagnostic_log_error = None
+        diagnostic_config = edgefall_config.get("diagnostics", {})
+        if self.pose_enabled and diagnostic_config.get("enabled", False):
+            try:
+                from .diagnostic_log import DiagnosticLog
+                self._diagnostic_log = DiagnosticLog(
+                    diagnostic_config["path"],
+                    int(diagnostic_config.get("max_bytes", 20_000_000)),
+                    int(diagnostic_config.get("backups", 2)),
+                )
+            except Exception as exc:
+                self._diagnostic_log_error = str(exc)
         self.edgefall_publish_mqtt = bool(
             edgefall_config.get("publish_mqtt", True)
         )
@@ -408,6 +422,8 @@ class CameraWorker:
         close_edgefall = getattr(self.edgefall_shadow, "close", None)
         if callable(close_edgefall):
             close_edgefall()
+        if self._diagnostic_log is not None:
+            self._diagnostic_log.close()
 
     def _set_error(self, message: str) -> None:
         with self._lock:
@@ -739,6 +755,21 @@ class CameraWorker:
                     with self._lock:
                         self._edgefall_shadow_tracks = edgefall_tracks
                         self._edgefall_shadow_error = edgefall_error
+                    if self._diagnostic_log is not None:
+                        self._diagnostic_log.record({
+                            "schema_version": 1,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "monotonic_sec": pose_finished,
+                            "camera_id": self.camera_id,
+                            "frame_seq": frame_seq,
+                            "frame_size": [frame.shape[1], frame.shape[0]],
+                            "profile": getattr(self.edgefall_shadow, "profile", None),
+                            "input_age_ms": input_age_ms,
+                            "inference_ms": pose_latency_ms,
+                            "poses": poses,
+                            "tracks": edgefall_tracks,
+                            "error": edgefall_error,
+                        })
 
                 except Exception as exc:
 
@@ -771,7 +802,11 @@ class CameraWorker:
             elif not hailo_requested:
                 with self._lock:
                     self._hailo_shadow_poses = []
-                    self._edgefall_shadow_tracks = []
+                    # The primary Hailo path owns the production EdgeFall
+                    # tracks. Disabling a historical comparison must not
+                    # erase a result computed earlier in this same loop.
+                    if not self.pose_enabled:
+                        self._edgefall_shadow_tracks = []
 
 
             # --------------------------------------
@@ -1018,6 +1053,10 @@ class CameraWorker:
                 "hip_drop_distance": float(track.get("hip_drop_distance", 0.0)),
                 "torso_angle_deg": float(track.get("torso_angle_deg", 0.0)),
                 "bbox_aspect_ratio": float(track.get("bbox_aspect_ratio", 0.0)),
+                "decision_reason": track.get("decision_reason", "unknown"),
+                "geometry_candidate": bool(track.get("geometry_candidate", False)),
+                "motion_continuous": bool(track.get("motion_continuous", False)),
+                "confirmation_policy": "temporal_required",
             }
             self.event_bus.emit(
                 self.camera_id,
@@ -1832,6 +1871,13 @@ class CameraWorker:
             ):
                 status.pop(key, None)
         status["analysis"] = analysis_readiness(status)
+        diagnostic_log = getattr(self, "_diagnostic_log", None)
+        status["diagnostic_logging"] = diagnostic_log is not None
+        status["diagnostic_log_error"] = (
+            diagnostic_log.error if diagnostic_log is not None
+            else getattr(self, "_diagnostic_log_error", None)
+        )
+        status["diagnostic_records_dropped"] = diagnostic_log.dropped if diagnostic_log else 0
         status["camera_view"] = getattr(self.source, "view_info", None)
         return status
 

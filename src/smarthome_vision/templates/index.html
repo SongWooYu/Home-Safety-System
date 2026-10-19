@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Vision Lab · 비전 테스트 스테이션</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=20261019-3">
-  <script src="{{ url_for('static', filename='dashboard.js') }}?v=20261019-3" defer></script>
+  <script src="{{ url_for('static', filename='dashboard.js') }}?v=20261019-6" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -32,7 +32,7 @@
           <div class="camera-heading"><div><span class="camera-index">01</span><h2>Dahua <small>낙상 분석 카메라</small></h2></div><div class="camera-actions"><span class="pill" id="online-dahua">연결 중</span><button class="icon-button expand" data-camera="dahua" aria-label="Dahua 영상 확대">⛶</button></div></div>
           <div class="video-wrap" id="video-dahua"><img class="stream" id="stream-dahua" data-camera="dahua" alt="Dahua 실시간 낙상 분석 영상"><span class="live-tag"><i></i> LIVE</span><span class="video-caption">관절·박스 표시</span><div class="video-alarm" id="video-alarm" hidden>낙상 감지</div></div>
           <div class="camera-meta"><span id="people-dahua">사람 대기</span><span><b id="fps-dahua">—</b> FPS</span><span title="디코더 내부 프레임 나이이며 전체 영상 지연은 아닙니다.">입력 버퍼 <b id="buffer-dahua">—</b></span></div>
-          <div class="analysis-strip"><div class="analysis-label"><span class="status-dot" id="analysis-dot"></span><div><strong id="analysis-title">분석 연결 중</strong><p id="analysis-detail">움직임을 기다립니다.</p></div></div><div class="motion-score"><span>움직임 점수 <button class="help" type="button" title="약 3.1초의 관절 변화가 학습된 낙상 패턴과 얼마나 닮았는지 나타내는 모델 점수입니다. 실제 낙상 확률이나 최종 경보가 아닙니다.">?</button></span><strong id="motion-score">—</strong><small id="motion-score-note">분석할 사람이 없습니다</small></div></div>
+          <div class="analysis-strip"><div class="analysis-label"><span class="status-dot" id="analysis-dot"></span><div><strong id="analysis-title">분석 연결 중</strong><p id="analysis-detail">움직임을 기다립니다.</p><strong id="decision-label">판정 대상 없음</strong><p id="decision-gate">확정에는 모델 양성과 동작 조건이 모두 필요합니다.</p><p id="diagnostic-health"></p></div></div><div class="motion-score"><span>움직임 점수 <button class="help" type="button" title="약 3.1초의 관절 변화가 학습된 낙상 패턴과 얼마나 닮았는지 나타내는 모델 점수입니다. 실제 낙상 확률이나 최종 경보가 아닙니다.">?</button></span><strong id="motion-score">—</strong><small id="motion-score-note">분석할 사람이 없습니다</small></div></div>
         </article>
         {% endif %}
         <section class="panel events-panel" id="event-panel">

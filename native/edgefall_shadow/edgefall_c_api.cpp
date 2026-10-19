@@ -37,6 +37,8 @@ struct EdgeFallTrackC {
     float bbox_aspect_ratio;
     float hip_drop_speed;
     float hip_drop_distance;
+    std::int32_t geometry_candidate;
+    std::int32_t motion_continuous;
 };
 
 struct Handle {
@@ -48,6 +50,8 @@ struct Handle {
 }  // namespace
 
 extern "C" {
+
+int edgefall_shadow_abi_version() noexcept { return 2; }
 
 void* edgefall_shadow_create(float keypoint_threshold) noexcept {
     try {
@@ -62,7 +66,7 @@ void edgefall_shadow_destroy(void* opaque) noexcept {
 }
 
 const char* edgefall_shadow_profile() noexcept {
-    return "edgefallkit-hailo8-yolov8s-pose-v1+foreshortened-persistence-v4";
+    return "edgefallkit-hailo8-yolov8s-pose-v1+units-separated-v6";
 }
 
 const char* edgefall_shadow_last_error(void* opaque) noexcept {
@@ -129,6 +133,8 @@ std::size_t edgefall_shadow_update(
             item.bbox_aspect_ratio = track.observation.bbox_aspect_ratio;
             item.hip_drop_speed = track.output.diagnostics.hip_drop_speed;
             item.hip_drop_distance = track.output.diagnostics.hip_drop_distance;
+            item.geometry_candidate = track.output.diagnostics.geometry_candidate ? 1 : 0;
+            item.motion_continuous = track.observation.motion_continuous ? 1 : 0;
         }
         return count;
     } catch (const std::exception& exc) {

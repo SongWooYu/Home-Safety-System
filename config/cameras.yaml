@@ -78,6 +78,13 @@ fall_detection:
     publish_mqtt: true
     keypoint_confidence: 0.25
     library: runtime/native/libedgefall_shadow.so
+    # 최근 관절/판정 수치만 기록. 영상·얼굴은 저장하지 않는다.
+    # 최대 약 60 MB (20 MB x 3), AI thread와 별도 비동기 기록.
+    diagnostics:
+      enabled: true
+      path: runtime/diagnostics/dahua-edgefall.jsonl
+      max_bytes: 20000000
+      backups: 2
 
   # Hailo post-process 단계에서 person 후보를 버리지 않고 EdgeFall의
   # 관절 유효성 검사를 적용한다.

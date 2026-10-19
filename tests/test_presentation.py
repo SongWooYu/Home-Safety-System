@@ -43,6 +43,25 @@ class PresentationTest(unittest.TestCase):
         self.assertEqual(state["code"], "waiting")
         self.assertIsNone(state["motion_score"])
 
+    def test_motion_only_candidate_is_not_presented_as_model_confirmation(self):
+        track = {"track_id": 2, "visible": True, "valid": True,
+                 "age_frames": 100, "temporal_probability": .02,
+                 "temporal_positive": False, "geometry_candidate": True,
+                 "decision_reason": "model_not_confirmed"}
+        state = analysis_readiness(self.status(edgefall_tracks=[track], edgefall_best_track_id=2))
+        self.assertEqual(state["decision_label"], "동작 후보 · 모델 미동의")
+        self.assertFalse(state["temporal_positive"])
+        self.assertTrue(state["geometry_candidate"])
+
+    def test_combined_confirmation_is_explicit(self):
+        track = {"track_id": 2, "visible": True, "valid": True,
+                 "age_frames": 100, "temporal_probability": .95,
+                 "temporal_positive": True, "geometry_candidate": True,
+                 "decision_reason": "temporal_and_geometry"}
+        state = analysis_readiness(self.status(edgefall_tracks=[track], edgefall_best_track_id=2))
+        self.assertEqual(state["decision_label"], "모델·동작 조건 모두 충족")
+        self.assertTrue(state["temporal_positive"])
+
     def test_sensor_mode_prefers_full_fov_without_full_resolution_cost(self):
         modes = [
             {"size": (1536, 864), "crop_limits": (768, 432, 3072, 1728), "fps": 120},
