@@ -7,6 +7,8 @@ app = Flask(__name__)
 # Optional, isolated vision-event notification (no changes to sensor/DB logic).
 from fall_notice import install as install_fall_notice
 install_fall_notice(app)
+from device_control import install as install_device_control
+install_device_control(app)
 
 def get_conn():
     return psycopg2.connect(

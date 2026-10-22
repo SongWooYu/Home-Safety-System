@@ -33,7 +33,12 @@ def same_origin():
         return True
     scheme = request.scheme
     forwarded = request.headers.get("X-Forwarded-Proto", "")
-    if request.remote_addr in {"127.0.0.1", "::1"} and forwarded in {"http", "https"}:
+    # The existing Cloudflare connector lives on Pi5, not on this Pi4.
+    # Trust only its exact LAN address and expected public Host, not all LAN
+    # peers or arbitrary X-Forwarded-Host supplied by clients.
+    trusted = request.remote_addr in {"127.0.0.1", "::1"} or (
+        request.remote_addr == "192.168.1.20" and request.host == "www.aihous.site")
+    if trusted and forwarded in {"http", "https"}:
         scheme = forwarded
     try:
         source, target = urlsplit(origin), urlsplit(f"{scheme}://{request.host}")

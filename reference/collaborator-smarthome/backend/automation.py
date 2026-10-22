@@ -1,5 +1,6 @@
 import time
 import paho.mqtt.client as mqtt
+from control_gate import AutomationGate
 
 # ===== 기준값 =====
 TEMP_HIGH = 28.0      # 넘으면 에어컨 ON
@@ -45,11 +46,13 @@ def get_state(room):
     return state[room]
 
 client = mqtt.Client()
+control = AutomationGate(client)
+for controlled_room in ("entrance", "livingroom", "bathroom", "kitchen"):
+    get_state(controlled_room)
 
 
 def command(topic, value):
-    client.publish(topic, value)
-    print(f"명령: {topic} = {value}")
+    control.command(topic, value)
 
 
 def on_connect(c, userdata, flags, rc):
@@ -176,12 +179,11 @@ def on_message(c, userdata, msg):
 
 
 client.on_connect = on_connect
-client.on_message = on_message
+client.on_message = lambda c, userdata, msg: control.dispatch(on_message, state, c, userdata, msg)
 client.connect("localhost", MQTT_PORT, 60)
 client.loop_start()
 
-while True:
-    time.sleep(5)
+def run_timers():
     now = time.time()
     for room, s in list(state.items()):
         if s["light_on"] and not s["presence_on"] \
@@ -195,3 +197,7 @@ while True:
             command(f"home/{room}/light/set", "OFF")
             s["entrance_light_on"] = False
             print("  → 문 닫힌 지 오래됨, 현관 조명 끔")
+
+while True:
+    time.sleep(5)
+    control.timers(run_timers, state)
