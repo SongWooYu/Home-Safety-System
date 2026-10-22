@@ -152,7 +152,8 @@ class FaceApiAuthorizationTest(unittest.TestCase):
         self.assertIn("자동 다각도 등록", html)
         with self.client.get("/static/dashboard.js") as response:
             script = response.get_data(as_text=True)
-        self.assertIn("/api/faces/enroll/auto", script)
+        self.assertIn("/api/faces/enrollment", script)
+        self.assertNotIn("const guideTimer", script)
         self.assertNotIn('id="face-view"', html)
 
     def test_dashboard_shows_hailo_edgefall_as_the_only_operational_path(self):

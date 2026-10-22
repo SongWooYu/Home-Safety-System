@@ -484,10 +484,7 @@ class CameraWorker:
                     self._registration_frame = (
                         frame.copy()
                     )
-
-                self._last_registration_frame_at = (
-                    now
-                )
+                    self._last_registration_frame_at = now
 
             # 실제 capture throughput 측정.
             frame_counter += 1
@@ -1001,7 +998,12 @@ class CameraWorker:
             transition: str | None = None
             if is_new_fall_event:
                 transition = "fall_confirmed"
+                self._edgefall_event_ids.pop(track_id, None)
                 self._edgefall_event_ids[track_id] = event_id
+                # Native track IDs are monotonic, not retained people. Keep only
+                # a bounded recent dedup ledger (also covers brief occlusion).
+                while len(self._edgefall_event_ids) > 256:
+                    self._edgefall_event_ids.pop(next(iter(self._edgefall_event_ids)))
             elif previous is not None and state != previous:
                 if state == "suspected":
                     transition = "fall_suspected"
@@ -1344,6 +1346,12 @@ class CameraWorker:
     def registration_frame(self) -> np.ndarray | None:
         with self._lock:
             return None if self._registration_frame is None else self._registration_frame.copy()
+
+    def registration_sample(self) -> tuple[float, np.ndarray | None]:
+        """Atomic timestamp + frame prevents repeated/stale enrollment samples."""
+        with self._lock:
+            return (self._last_registration_frame_at,
+                    None if self._registration_frame is None else self._registration_frame.copy())
 
     def snapshot(self) -> WorkerSnapshot:
         with self._lock:
@@ -1997,6 +2005,7 @@ class VisionPipeline:
         return {
             "service": "smarthome-vision",
             "mqtt_connected": self.event_bus.connected,
+            "mqtt_rejected_events": self.event_bus.rejected_events,
             "fall_backend": "hailo_edgefall",
             "fall_model": str(
                 getattr(self.pose_estimator, "model_name", "")

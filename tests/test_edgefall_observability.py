@@ -120,3 +120,16 @@ class EdgeFallObservabilityTest(unittest.TestCase):
 
         self.assertEqual(len(worker.event_bus.events), 1)
         self.assertEqual(worker.event_bus.events[0][0][1], "fall_confirmed")
+
+        # Repeated detections may allocate arbitrarily high IDs, but the dedup
+        # ledger must not retain every past person's fall event forever.
+        with patch("builtins.print"):
+            for track_id in range(2000, 2600):
+                track = _track("fallen", fall_event=True)
+                track["track_id"] = track_id
+                worker._record_edgefall_transitions([track])
+        self.assertEqual(len(worker._edgefall_event_ids), 256)
+        self.assertEqual(set(worker._edgefall_track_states), {2599})
+        count = len(worker.event_bus.events)
+        worker._record_edgefall_transitions([track])
+        self.assertEqual(len(worker.event_bus.events), count)

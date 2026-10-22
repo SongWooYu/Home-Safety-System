@@ -42,7 +42,9 @@ class Pi4AudioAlarmTest(unittest.TestCase):
 
     def test_parses_only_bounded_integer_volume(self):
         self.assertEqual(audio_alarm.parse_audio_volume('{"volume": 70}'), 70)
-        self.assertEqual(audio_alarm.parse_audio_volume('{"volume": 0}'), 0)
+        self.assertIsNone(audio_alarm.parse_audio_volume('{"volume": 0}'))
+        self.assertIsNone(audio_alarm.parse_audio_volume('{"volume": 59}'))
+        self.assertEqual(audio_alarm.parse_audio_volume('{"volume": 60}'), 60)
         self.assertEqual(audio_alarm.parse_audio_volume('{"volume": 100}'), 100)
         self.assertIsNone(audio_alarm.parse_audio_volume('{"volume": 101}'))
         self.assertIsNone(audio_alarm.parse_audio_volume('{"volume": "70"}'))

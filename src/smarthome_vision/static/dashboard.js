@@ -14,6 +14,9 @@ let lastEventSignature = "";
 let lastTick = Date.now();
 const previousOnline = new Map();
 const reconnectTimers = new Map();
+let activeView = "monitor";
+$("theme-select").value = window.visionTheme.get();
+$("theme-select").addEventListener("change", event => window.visionTheme.set(event.target.value));
 
 async function requestJSON(url, options = {}, timeout = 5000) {
   const controller = new AbortController();
@@ -50,10 +53,19 @@ $("audio-volume-apply").addEventListener("click", () => {
   audioRequest("/api/audio/volume", {volume}, `음량 ${volume}% 적용 명령을 보냈습니다`);
 });
 
-function connectStream(img) {
-  if (document.hidden) return;
+function stopStream(img) {
   clearTimeout(reconnectTimers.get(img.id));
-  img.src = `/stream/${encodeURIComponent(img.dataset.camera)}?overlay=true&t=${Date.now()}`;
+  if (img.dataset.streaming === "true") {
+    img.dataset.streaming = "false";
+    img.src = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+  }
+}
+function connectStream(img) {
+  if (!img) return;
+  if (document.hidden || img.closest("[hidden]")) { stopStream(img); return; }
+  clearTimeout(reconnectTimers.get(img.id));
+  img.dataset.streaming = "true";
+  img.src = `/stream/${encodeURIComponent(img.dataset.camera)}?overlay=${img.dataset.overlay || "true"}&t=${Date.now()}`;
 }
 function reconnectStreams() {
   document.querySelectorAll(".stream").forEach(connectStream);
@@ -61,18 +73,57 @@ function reconnectStreams() {
 document.querySelectorAll(".stream").forEach(img => {
   img.addEventListener("error", () => {
     clearTimeout(reconnectTimers.get(img.id));
-    if (!document.hidden) reconnectTimers.set(img.id, setTimeout(() => connectStream(img), 3000));
+    if (!document.hidden && !img.closest("[hidden]")) reconnectTimers.set(img.id, setTimeout(() => connectStream(img), 3000));
   });
 });
 $("reconnect").addEventListener("click", reconnectStreams);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     reconnectTimers.forEach(clearTimeout);
-    document.querySelectorAll(".stream").forEach(img => img.removeAttribute("src"));
+    document.querySelectorAll(".stream").forEach(stopStream);
   } else { reconnectStreams(); }
 });
 window.addEventListener("pageshow", reconnectStreams);
 window.addEventListener("online", reconnectStreams);
+
+function switchView(view) {
+  if (!["monitor", "face-enrollment", "event-panel"].includes(view)) view = "monitor";
+  if (activeView === "face-enrollment" && view !== activeView && enrollmentId) {
+    requestJSON(`/api/faces/enrollment/${enrollmentId}`, {method:"DELETE"}).catch(() => {});
+  }
+  activeView = view;
+  closeExpanded();
+  document.querySelectorAll(".tab-panel").forEach(panel => { panel.hidden = panel.id !== view; });
+  document.querySelectorAll("[data-monitor-only]").forEach(panel => { panel.hidden = view !== "monitor"; });
+  document.querySelectorAll('[role="tab"]').forEach(tab => {
+    const selected = tab.getAttribute("aria-controls") === view;
+    tab.classList.toggle("selected", selected);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  });
+  const headings = {
+    monitor:["비전 테스트 스테이션", "낙상 판정과 얼굴 인식을 한곳에서 확인하세요."],
+    "face-enrollment":["얼굴 등록", "거울 미리보기를 보며 본인 기준 좌우로 고개를 돌려 주세요."],
+    "event-panel":["감지 기록", "최근 낙상 의심·확정과 얼굴 인식 이벤트를 확인하세요."]
+  };
+  setText("page-title", headings[view][0]); setText("page-subtitle", headings[view][1]);
+  reconnectStreams();
+}
+document.querySelectorAll('[role="tab"], [data-view-link]').forEach(link => link.addEventListener("click", event => {
+  event.preventDefault(); history.pushState(null, "", link.getAttribute("href"));
+  switchView(location.hash.slice(1));
+}));
+document.querySelector('[role="tablist"]').addEventListener("keydown", event => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  const index = tabs.indexOf(document.activeElement);
+  if (index < 0) return;
+  event.preventDefault();
+  const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+    : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[next].focus(); tabs[next].click();
+});
+window.addEventListener("hashchange", () => switchView(location.hash.slice(1)));
 
 function closeExpanded() {
   document.querySelectorAll(".camera-card.expanded").forEach(card => card.classList.remove("expanded"));
@@ -187,6 +238,7 @@ function renderStatus(data) {
   $("mqtt-dot").classList.toggle("connected", data.mqtt_connected);
   if (!audioBusy) $("audio-test").disabled = $("audio-volume-apply").disabled = !data.mqtt_connected;
   setText("diag-mqtt", `${data.fall_events_publish_mqtt ? "발행 활성" : "발행 비활성"} / ${data.mqtt_connected ? "연결됨" : "연결 끊김"}`);
+  setText("diag-mqtt-rejected", String(data.mqtt_rejected_events || 0));
   const view = data.cameras.find(c => c.face_enabled)?.camera_view;
   setText("diag-camera", view ? `${view.sensor_size.join(" × ")} · 최대 화각` : "—");
   data.cameras.forEach(renderCamera);
@@ -223,65 +275,72 @@ $("ack-fall").addEventListener("click", () => {
   $("last-fall").hidden = true; // Display acknowledgement only; never cancels MQTT alarms.
 });
 
-function updateGuide(fraction) {
-  const steps = [
-    ["front", "정면을 바라봐 주세요", "카메라 렌즈를 바라보고 잠시 유지해 주세요."],
-    ["right", "화면 오른쪽으로 고개를 돌려 주세요 →", "몸은 그대로 두고, 고개만 화살표 쪽으로 20~30° 천천히 돌려 주세요."],
-    ["left", "← 화면 왼쪽으로 고개를 돌려 주세요", "반대쪽으로 천천히 돌려 주세요. 완전히 옆을 볼 필요는 없습니다."],
-    ["front", "다시 정면을 바라봐 주세요", "고개를 정면으로 되돌려 주세요. 곧 촬영이 끝납니다."]
-  ];
-  const step = fraction < .25 ? 0 : fraction < .55 ? 1 : fraction < .85 ? 2 : 3;
-  const [direction, title, detail] = steps[step];
+function updateGuide(state) {
+  // Raw camera yaw and a mirror preview have opposite horizontal directions.
+  const direction = state.display_direction || ({front:"front", right:"left", left:"right"})[state.direction];
+  const titles = {front:"정면을 바라봐 주세요", right:"내 오른쪽으로 고개를 돌려 주세요 →", left:"← 내 왼쪽으로 고개를 돌려 주세요"};
   $("enrollment-guide").dataset.direction = direction;
-  setText("guide-image-title", title);
-  setText("guide-title", title);
-  setText("guide-detail", detail);
-  setText("guide-step", `촬영 ${step + 1} / 4`);
-  document.querySelectorAll(".guide-steps span").forEach(el => el.classList.toggle("active", Number(el.dataset.step) === step));
-  const value = Math.round(Math.min(1, fraction) * 100);
+  setText("guide-image-title", titles[direction]);
+  setText("guide-title", titles[direction]);
+  setText("guide-detail", state.message);
+  setText("guide-step", `실제 방향 확인 ${state.step + 1} / 3 · 남은 시간 ${state.remaining_seconds}초`);
+  document.querySelectorAll(".guide-steps span").forEach(el => el.classList.toggle("active", Number(el.dataset.step) === state.step));
+  const value = state.progress;
   $("guide-progress-fill").style.width = `${value}%`;
   $("guide-progress").setAttribute("aria-valuenow", String(value));
-  if (fraction >= 1) {
-    setText("guide-step", "촬영 완료 · 특징 분석 중");
-    setText("guide-title", "촬영한 얼굴을 확인하고 있어요");
-    setText("guide-detail", "각 방향의 선명한 얼굴 특징을 모으고 있습니다. 잠시만 기다려 주세요.");
-  }
+  setText("face-status", `유효 특징: 정면 ${state.samples.front}/${state.required} · 내 왼쪽 ${state.samples.right}/${state.required} · 내 오른쪽 ${state.samples.left}/${state.required}`);
 }
+
+let enrollmentId = null;
+$("face-cancel").addEventListener("click", async () => {
+  if (!enrollmentId) return;
+  try { await requestJSON(`/api/faces/enrollment/${enrollmentId}`, {method:"DELETE"}); }
+  catch (error) { setText("face-status", error.message); }
+});
 
 $("face-form").addEventListener("submit", async event => {
   event.preventDefault();
   const name = $("face-name").value.trim();
   if (!name) { $("face-name").focus(); return; }
   const button = $("face-submit");
-  const duration = Number($("face-enrollment").dataset.duration) * 1000;
   button.disabled = true; $("face-name").disabled = true;
+  $("face-cancel").hidden = false;
   button.textContent = "촬영 중…";
   $("face-status").className = "form-status";
   setText("face-status", "위 얼굴 그림과 화살표를 따라 고개를 움직여 주세요.");
-  const start = performance.now();
-  updateGuide(0);
-  const guideTimer = setInterval(() => updateGuide((performance.now() - start) / duration), 150);
   try {
-    const person = await requestJSON("/api/faces/enroll/auto", {
+    let state = await requestJSON("/api/faces/enrollment", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({camera_id:$("face-camera").value, name})
-    }, 120000);
-    clearInterval(guideTimer);
-    updateGuide(1);
+    });
+    enrollmentId = state.id;
+    const deadline = performance.now() + 60000;
+    while (state.status === "capturing") {
+      updateGuide(state);
+      if (performance.now() > deadline) throw new Error("등록 응답 대기 시간이 초과되었습니다.");
+      await new Promise(resolve => setTimeout(resolve, 250));
+      state = await requestJSON(`/api/faces/enrollment/${enrollmentId}`);
+    }
+    updateGuide(state);
+    if (state.status !== "completed") throw new Error(state.message);
+    const person = state.person;
     setText("guide-title", `${person.name}님 등록 완료`);
     setText("guide-step", "등록 완료");
     setText("guide-detail", "이제 고개를 좌우로 움직이며 영상 속 이름이 유지되는지 확인해 보세요.");
     setText("face-status", `정면 ${person.samples.front}장 · 양쪽 ${person.samples.left}/${person.samples.right}장의 특징을 등록했습니다.`);
     $("face-status").className = "form-status success";
   } catch (error) {
-    clearInterval(guideTimer);
     setText("guide-title", "다시 촬영해 주세요");
     setText("guide-step", "등록 실패");
     setText("guide-detail", "아래 이유를 확인하고 다시 시작해 주세요.");
     setText("face-status", error.name === "AbortError" ? "서버 응답 시간이 초과되었습니다. 등록자 목록을 확인한 뒤 다시 시도해 주세요." : error.message);
     $("face-status").className = "form-status error";
   } finally {
-    clearInterval(guideTimer);
+    if (enrollmentId) {
+      await requestJSON(`/api/faces/enrollment/${enrollmentId}`, {method:"DELETE"}).catch(() => {});
+    }
+    enrollmentId = null;
+    $("face-cancel").hidden = true;
     button.disabled = false; $("face-name").disabled = false;
     button.textContent = "자동 다각도 등록 →";
     $("enrollment-guide").dataset.direction = "front";
@@ -332,4 +391,5 @@ async function poll() {
   }
   setTimeout(poll, 500);
 }
+switchView(location.hash.slice(1));
 poll();

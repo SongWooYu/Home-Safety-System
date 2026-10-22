@@ -210,6 +210,36 @@ class FaceRegistry:
                     "정면에서 양쪽으로 천천히 돌려 주세요. " + counts
                 )
 
+            return self.save_guided_samples(clean_name, samples, rejected)
+
+    def enrollment_observation(self, frame: np.ndarray) -> dict:
+        """Inspect one current frame. Embeddings stay server-side only."""
+        with self._lock:
+            faces = self._detect(frame)
+            if len(faces) != 1:
+                return {"error": "한 사람의 얼굴 전체를 카메라 가까이 보여 주세요."}
+            face = faces[0]
+            x, y, width, height = face[:4]
+            h, w = frame.shape[:2]
+            if x < 0 or y < 0 or x + width > w or y + height > h:
+                return {"error": "얼굴이 잘렸어요. 화면 안쪽으로 이동해 주세요."}
+            yaw = self._face_yaw(face)
+            if yaw is None or abs(yaw) > self.enrollment_max_yaw:
+                return {"error": "너무 옆을 보고 있어요. 정면 쪽으로 조금 돌아와 주세요."}
+            if self._face_sharpness(frame, face) < self.enrollment_min_sharpness:
+                return {"error": "얼굴이 흐려요. 움직임을 멈추고 조명을 확인해 주세요."}
+            feature = self._feature(frame, face)
+            if feature is None:
+                return {"error": "눈과 코가 잘 보이도록 얼굴을 보여 주세요."}
+            view = "front" if abs(yaw) < self.enrollment_yaw_threshold else ("left" if yaw < 0 else "right")
+            return {"view": view, "feature": feature}
+
+    def save_guided_samples(self, clean_name: str, samples: dict, rejected=None) -> dict:
+        """Commit all three views together; never persist a partial session."""
+        if any(len(samples.get(view, [])) < self.enrollment_min_samples_per_view
+               for view in self.VALID_VIEWS):
+            raise FaceRegistryError("세 방향의 선명한 특징이 모두 필요합니다.")
+        with self._lock:
             now = datetime.now(timezone.utc).isoformat()
             templates = []
             for view in ("front", "left", "right"):
@@ -256,7 +286,7 @@ class FaceRegistry:
                 "mode": "guided_multi_angle",
                 "views": ["front", "left", "right"],
                 "samples": {view: len(value) for view, value in samples.items()},
-                "rejected": rejected,
+                "rejected": rejected or {},
             }
 
     def delete(self, person_id: str) -> bool:

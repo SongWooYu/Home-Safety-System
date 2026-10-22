@@ -1,13 +1,13 @@
-"""LAN-only demonstration audio controls; deliberately no admin token.
+"""Same-origin demonstration audio controls; deliberately no admin token.
 
 No camera data, alarm state, or arbitrary text is sent. Cross-origin browser
 requests and rapid repeated clicks are rejected. Not an Internet auth scheme.
 """
 import threading
 import time
-from urllib.parse import urlsplit
 
 from flask import jsonify, request
+from .request_origin import same_origin_request
 
 
 def register_audio_routes(app, pipeline):
@@ -15,10 +15,7 @@ def register_audio_routes(app, pipeline):
     last_request = {}
 
     def send(action):
-        origin = request.headers.get("Origin")
-        if (request.headers.get("Sec-Fetch-Site") == "cross-site"
-                or (origin and (urlsplit(origin).netloc != request.host
-                                or urlsplit(origin).scheme != request.scheme))):
+        if not same_origin_request():
             return jsonify(error="다른 사이트에서는 음성을 제어할 수 없습니다."), 403
         if not request.is_json:
             return jsonify(error="JSON 요청이 필요합니다."), 415
@@ -26,8 +23,8 @@ def register_audio_routes(app, pipeline):
         if not isinstance(payload, dict):
             return jsonify(error="JSON 객체가 필요합니다."), 400
         volume = payload.get("volume")
-        if action == "volume" and (type(volume) is not int or not 0 <= volume <= 100):
-            return jsonify(error="음량은 0~100 정수여야 합니다."), 400
+        if action == "volume" and (type(volume) is not int or not 60 <= volume <= 100):
+            return jsonify(error="음량은 60~100 정수여야 합니다."), 400
         with lock:
             now = time.monotonic()
             if now - last_request.get(action, -100) < (3 if action == "test_tts" else 0.5):

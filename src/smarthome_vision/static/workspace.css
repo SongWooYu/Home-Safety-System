@@ -1,0 +1,57 @@
+/* Isolated view/layout and theme overrides for the Pi5 dashboard only. */
+.topbar {height:auto;min-height:84px;flex-wrap:wrap;gap:24px;padding-top:14px;padding-bottom:14px}
+.topbar nav {align-self:center;gap:22px}
+.topbar nav a {padding:12px 0;white-space:nowrap}
+.theme-control {margin-left:auto;width:140px;flex-shrink:0}
+.theme-control>span {display:block;font-size:10px;color:var(--muted);margin-bottom:3px}
+.theme-control select {padding:7px 10px}
+.device-tag {margin-left:0}
+.enrollment-layout {display:grid;grid-template-columns:minmax(0,1.1fr) minmax(350px,1fr);gap:24px;align-items:start}
+.enrollment-preview .video-wrap {aspect-ratio:4/3}
+.mirrored {transform:scaleX(-1)}
+.preview-help {padding:16px 20px;margin:0}
+.guide-copy p {font-size:13px}
+.enrollment-panel .face-guide-art {width:155px}
+.enrollment-panel .guide-steps {font-size:11px}
+.events-panel.tab-panel .event-list {max-height:65vh}
+.face-column .panel .button {margin-top:16px}
+.tab-panel {min-width:0}
+
+:root[data-theme=dark] {
+  color-scheme:dark;--bg:#0d151b;--paper:#16232b;--ink:#e2efeb;
+  --muted:#a2b5b2;--line:#31454c;--accent:#6ed5ba;--red:#ff8e96;--amber:#f6c977;
+}
+[data-theme=dark] .brand-symbol {background:#2c4d49;color:#e4fff5}
+[data-theme=dark] .button:hover {background:#263c41;border-color:#52716d}
+[data-theme=dark] .button.primary {background:#227e6e;color:#fff;border-color:#45aa94}
+[data-theme=dark] .button.primary:hover {background:#2d927e}
+[data-theme=dark] .alarm-banner {background:#223a37;border-color:#36524c}
+[data-theme=dark] .alarm-banner[data-tone=normal] {background:#173e32;border-color:#316450}
+[data-theme=dark] .alarm-banner[data-tone=warning] {background:#48351b;border-color:#8b6836}
+[data-theme=dark] .alarm-banner[data-tone=error] {background:#4a2930;border-color:#80505a}
+[data-theme=dark] .alarm-banner[data-tone=danger] {background:#a92231;border-color:#f06a76;color:#fff}
+[data-theme=dark] .alarm-copy p {color:#c0d4cc}
+[data-theme=dark] .alarm-banner[data-tone=danger] .alarm-copy p {color:#fff2f0}
+[data-theme=dark] .alarm-banner[data-tone=warning] .eyebrow {color:var(--amber)}
+[data-theme=dark] .alarm-symbol {background:#ffffff13}
+[data-theme=dark] .last-fall {background:#40282d;border-color:#80505a}
+[data-theme=dark] .last-fall span span {color:#e9bdc2}
+[data-theme=dark] .connection-warning {background:#45371e;border-color:#8b6836;color:#f6dba6}
+[data-theme=dark] .pill {background:#253b40;color:var(--muted)}
+[data-theme=dark] .pill.online {background:#1b4438;color:var(--accent)}
+[data-theme=dark] .pill.offline {background:#4b2930;color:var(--red)}
+[data-theme=dark] .icon-button {background:var(--paper)}
+[data-theme=dark] .camera-meta {background:#192c33;border-color:var(--line)}
+[data-theme=dark] .camera-meta b {color:var(--ink)}
+[data-theme=dark] .event-row {border-color:var(--line)}
+[data-theme=dark] .enrollment-guide {background:#1a3534;border-color:#34544c}
+[data-theme=dark] .guide-progress {background:#3c5550}
+[data-theme=dark] input,[data-theme=dark] select {background:#102029;border-color:#46615f}
+
+@media(max-width:1100px) {.device-tag{display:none}.enrollment-layout{gap:18px;grid-template-columns:minmax(0,1fr) minmax(320px,1fr)}}
+@media(max-width:850px) {.enrollment-layout{grid-template-columns:1fr}.enrollment-preview{max-width:640px;width:100%;margin:auto}.enrollment-panel .face-form{flex-wrap:wrap}}
+@media(max-width:650px) {
+  .topbar {gap:10px;padding:12px 18px}.topbar nav {order:3;flex-basis:100%;justify-content:space-between;margin:0;font-size:12px;gap:10px}
+  .topbar nav a:last-child {display:flex}.theme-control{width:125px}.topbar nav a{padding:8px 0}
+  .enrollment-panel .face-guide-art{width:105px}.enrollment-panel .guide-steps{font-size:10px}.guide-copy p{font-size:12px}
+}

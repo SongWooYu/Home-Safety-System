@@ -18,6 +18,7 @@ class EventBus:
         self._config = config
         self._client: mqtt.Client | None = None
         self._connected = False
+        self.rejected_events = 0
 
     def start(self) -> None:
         if not self._config.get("enabled", False):
@@ -38,6 +39,8 @@ class EventBus:
                 client.username_pw_set(username, password)
 
             client.on_connect = self._on_connect
+            # A failing/slow broker must not accumulate unlimited QoS 1 data.
+            client.max_queued_messages_set(256)
             client.on_disconnect = self._on_disconnect
             client.connect_async(
                 self._config.get("host", "192.168.1.10"),
@@ -91,12 +94,15 @@ class EventBus:
             and self._client is not None
             and self._connected
         ):
-            self._client.publish(
+            result = self._client.publish(
                 self._config.get("topic_events", "home/vision/events"),
                 json.dumps(event, ensure_ascii=False),
                 qos=1,
                 retain=False,
             )
+            if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                self.rejected_events += 1
+                print(f"MQTT_EVENT_REJECTED rc={result.rc} total={self.rejected_events}", flush=True)
         return event
 
     def publish_status(self, camera_id: str, status: dict[str, Any]) -> None:
@@ -116,7 +122,7 @@ class EventBus:
             topic = "home/safety/fall/audio/command"
             payload = {"action": "test_tts", "source": "pi5-audio-test"}
             retain = False
-        elif action == "volume" and type(volume) is int and 0 <= volume <= 100:
+        elif action == "volume" and type(volume) is int and 60 <= volume <= 100:
             topic = "home/safety/fall/audio/config"
             payload = {"volume": volume}
             retain = True
