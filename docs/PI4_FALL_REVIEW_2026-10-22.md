@@ -98,3 +98,21 @@ Pi4 배포: `/opt/smarthome/web/fall_notice.py`, `static/fall_notice.js`, `fall_
 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -q
 python tests/browser_fall_review_check.py --base http://192.168.1.10:8000
 ```
+
+### 실제 배포 확인 (2026-10-22 15:45–15:47 KST)
+
+- 전체 Python 회귀 테스트 **108개 통과**.
+- 실제 Pi4 `:8000`을 대상으로 위 브라우저 시험 통과. ICE 원격 후보는
+  `192.168.1.20:8189/UDP/host`; 실시간 영상은 Pi4가 아닌 Pi5에서 수신했다.
+- 15:46:09 수동 confirmed → Pi4 MQTT 수신/목록 저장 → 92,284바이트 JPEG 조회.
+  캡처는 `pose_frame_matched=true`, frame 21687, age 33ms, 박스 4개/관절 38개였다.
+- 해당 실제 사건 화면에서 960×580 캡처와 1920×1080 WebRTC 동시 표시 확인.
+  시각 검증 화면은 Git 제외 `runtime/pi4-fall-review-verified.png`에 저장했다.
+- 15:46:11 시험 clear 발행 후 Pi4 수신 상태 `normal`까지 확인했다. 시험 이벤트
+  한 건은 실제 감지와 구별된 상태로 최근 목록에 남겨 사용자가 확인할 수 있다.
+- 협업자 `/opt/smarthome/web/app.py`, `index.html` SHA-256은 배포 전후 동일.
+  web/collector/automation/audio/sync timer 모두 active, 8081 listener 없음.
+- 확인 시 Pi5 두 카메라 online, MQTT 연결/발행 거부 0, Hailo 실효 13.32 FPS.
+  이는 순간 측정이며 장시간 안정성/정확도나 모든 외부 네트워크 연결의 보장은 아니다.
+- Git: Pi5 기능 `3967c87` → Pi4 pull/모듈 배포/동기화 사본 `07077f7` → Pi5 pull.
+  이 검증 문서도 양쪽 main에 순서대로 반영한다. force push는 사용하지 않는다.
