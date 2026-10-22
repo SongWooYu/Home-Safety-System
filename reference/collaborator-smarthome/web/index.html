@@ -18,7 +18,8 @@
   .card.lit { background:#3a3a1e; border:1px solid #facc15; }
   .card.cool { background:#1e2a3a; border:1px solid #60a5fa; }
   .card.alert { background:#3a1e1e; border:1px solid #f87171; }
-  .card.empty { color:#666; font-size:13px; padding:20px; }
+  .card.none { background:#232323; border:1px dashed #3a3a3a; }
+  .card.none .value { color:#555; }
   .label { font-size:12px; color:#999; }
   .value { font-size:26px; font-weight:600; margin-top:4px; }
   .time { font-size:11px; color:#666; margin-top:6px; }
@@ -35,23 +36,25 @@
 let META = { rooms: [], metrics: [] };
 let METRIC_BY_ID = {};
 
-const SHOW_ROOMS = ["entrance", "livingroom", "kitchen", "bathroom"];
-
-// 화면에 안 띄울 센서 항목 (DB에는 남아 있음)
-const HIDE_METRICS = ["distance", "presence"];
-
-// 방별로 안 띄울 기기 (부엌 조명은 부저로 교체됨)
-const HIDE_DEVICES = { kitchen: ["light"] };
-
-// 기기 기본 이름
-const DEVICE_NAMES = { light:"조명", aircon:"에어컨", curtain:"커튼", fan:"환풍기", alarm:"경보" };
-
-// 방별로 다르게 부를 이름
-const DEVICE_NAMES_BY_ROOM = {
-  kitchen: { alarm: "부저" }
+// 방마다 항상 보여줄 항목 (데이터가 없어도 빈 카드로 표시)
+const ROOM_LAYOUT = {
+  entrance:   { sensors: ["door"],
+                devices: ["light"] },
+  livingroom: { sensors: ["motion", "temperature", "humidity", "brightness"],
+                devices: ["light", "aircon", "curtain"] },
+  kitchen:    { sensors: ["motion", "temperature", "humidity", "gas", "gas_level"],
+                devices: ["alarm"] },
+  bathroom:   { sensors: ["motion", "temperature", "humidity"],
+                devices: ["light", "fan"] }
 };
 
-const DEVICE_ORDER = ["light", "aircon", "curtain", "fan", "alarm"];
+const DEVICE_NAMES = { light:"조명", aircon:"에어컨", curtain:"커튼", fan:"환풍기", alarm:"경보" };
+const DEVICE_NAMES_BY_ROOM = { kitchen: { alarm: "부저" } };
+
+const METRIC_NAMES_FALLBACK = {
+  motion:"움직임", temperature:"온도", humidity:"습도",
+  brightness:"조도", gas:"가스", gas_level:"가스 농도", door:"현관문"
+};
 
 let lastCardsHtml = "";
 
@@ -70,28 +73,36 @@ function fmtShort(ts) {
   return new Date(ts).toLocaleString("ko-KR", { hour:"2-digit", minute:"2-digit" });
 }
 
+function metricName(id) {
+  const m = METRIC_BY_ID[id];
+  if (m && m.name) return m.name;
+  return METRIC_NAMES_FALLBACK[id] || id;
+}
+
 function deviceName(room, device) {
   const byRoom = DEVICE_NAMES_BY_ROOM[room];
   if (byRoom && byRoom[device]) return byRoom[device];
   return DEVICE_NAMES[device] || device;
 }
 
+function emptyCard(name) {
+  return `<div class="card none"><div class="label">${name}</div><div class="value">—</div><div class="time">데이터 없음</div></div>`;
+}
+
 function sensorCard(s) {
-  if (HIDE_METRICS.includes(s.metric)) return "";
   const m = METRIC_BY_ID[s.metric];
-  if (!m) return "";
   let cls = "", val = s.value;
   if (s.metric === "door") { val = s.value === "CLOSED" ? "닫힘" : "열림"; if (s.value === "OPEN") cls = "open"; }
   else if (s.metric === "gas") { val = s.value === "ON" ? "감지!" : "정상"; if (s.value === "ON") cls = "alert"; }
-  else if (m.numeric) { val = Number(s.value).toFixed(s.metric === "humidity" || s.metric === "brightness" || s.metric === "gas_level" ? 0 : 1) + m.unit; }
+  else if (m && m.numeric) {
+    const digits = (s.metric === "humidity" || s.metric === "brightness" || s.metric === "gas_level") ? 0 : 1;
+    val = Number(s.value).toFixed(digits) + (m.unit || "");
+  }
   else if (s.value === "ON") cls = "on";
-  return `<div class="card ${cls}"><div class="label">${m.name}</div><div class="value">${val}</div><div class="time">${fmtDateTime(s.ts)}</div></div>`;
+  return `<div class="card ${cls}"><div class="label">${metricName(s.metric)}</div><div class="value">${val}</div><div class="time">${fmtDateTime(s.ts)}</div></div>`;
 }
 
 function commandCard(c) {
-  const hidden = HIDE_DEVICES[c.room];
-  if (hidden && hidden.includes(c.device)) return "";
-
   const name = deviceName(c.room, c.device);
   let cls = "", val;
   if (c.device === "curtain") { val = c.value === "OPEN" ? "열림" : "닫힘"; if (c.value === "OPEN") cls = "open"; }
@@ -105,23 +116,28 @@ function commandCard(c) {
 async function loadCards() {
   const res = await fetch("/api/latest");
   const data = await res.json();
-  const byRoom = {};
-  for (const s of data.sensors) (byRoom[s.room] = byRoom[s.room] || { s:[], c:[] }).s.push(s);
-  for (const c of data.commands) (byRoom[c.room] = byRoom[c.room] || { s:[], c:[] }).c.push(c);
 
-  const metricOrder = META.metrics.map(m => m.id);
+  const sensorMap = {}, cmdMap = {};
+  for (const s of data.sensors) sensorMap[s.room + "|" + s.metric] = s;
+  for (const c of data.commands) cmdMap[c.room + "|" + c.device] = c;
+
+  const roomNames = {};
+  for (const r of META.rooms) roomNames[r.id] = r.name;
+
   let html = "";
-  for (const room of META.rooms) {
-    if (!SHOW_ROOMS.includes(room.id)) continue;
-    const items = byRoom[room.id];
-    html += `<div class="room"><h2>${room.name}</h2><div class="cards">`;
-    if (!items) {
-      html += `<div class="card empty">데이터 없음 — 센서 노드가 꺼져 있거나 아직 연결 전입니다</div>`;
-    } else {
-      items.s.sort((a, b) => metricOrder.indexOf(a.metric) - metricOrder.indexOf(b.metric));
-      items.c.sort((a, b) => DEVICE_ORDER.indexOf(a.device) - DEVICE_ORDER.indexOf(b.device));
-      html += items.s.map(sensorCard).join("") + items.c.map(commandCard).join("");
+  for (const roomId of Object.keys(ROOM_LAYOUT)) {
+    const layout = ROOM_LAYOUT[roomId];
+    html += `<div class="room"><h2>${roomNames[roomId] || roomId}</h2><div class="cards">`;
+
+    for (const metric of layout.sensors) {
+      const s = sensorMap[roomId + "|" + metric];
+      html += s ? sensorCard(s) : emptyCard(metricName(metric));
     }
+    for (const device of layout.devices) {
+      const c = cmdMap[roomId + "|" + device];
+      html += c ? commandCard(c) : emptyCard(deviceName(roomId, device));
+    }
+
     html += `</div></div>`;
   }
 
@@ -142,16 +158,42 @@ async function loadChart() {
     series.push({ room:room.id, metric:"temperature", label:`${room.name} 온도`, color:COLORS[room.id], axis:"yTemp", dash:[] });
     series.push({ room:room.id, metric:"humidity",    label:`${room.name} 습도`, color:COLORS[room.id], axis:"yHumi", dash:[6,4] });
   }
+
   const results = await Promise.all(
     series.map(s => fetch(`/api/history/${s.room}/${s.metric}`).then(r => r.json()))
   );
-  const longest = results.reduce((a, b) => a.length >= b.length ? a : b, []);
 
-  const labels = longest.map(d => fmtShort(d.ts));
-  const datasets = series.map((s, i) => ({
-    label: s.label, data: results[i].map(d => d.value),
-    borderColor: s.color, borderDash: s.dash, yAxisID: s.axis, tension:0.3, pointRadius:0
-  })).filter((_, i) => results[i].length > 0);
+  // 1) 모든 시각을 모아서 가로축 만들기 (1분 단위로 묶음)
+  const bucket = ts => Math.floor(new Date(ts).getTime() / 60000);
+  const allKeys = new Set();
+  const maps = results.map(rows => {
+    const m = new Map();
+    for (const d of rows) {
+      const k = bucket(d.ts);
+      m.set(k, d.value);     // 같은 분이면 마지막 값 사용
+      allKeys.add(k);
+    }
+    return m;
+  });
+
+  const keys = [...allKeys].sort((a, b) => a - b);
+  const labels = keys.map(k => fmtShort(k * 60000));
+
+  // 2) 각 선은 자기 시각 자리에만 점을 찍음
+  const datasets = [];
+  series.forEach((s, i) => {
+    if (maps[i].size === 0) return;
+    datasets.push({
+      label: s.label,
+      data: keys.map(k => maps[i].has(k) ? maps[i].get(k) : null),
+      borderColor: s.color,
+      borderDash: s.dash,
+      yAxisID: s.axis,
+      tension: 0.3,
+      pointRadius: 0,
+      spanGaps: true
+    });
+  });
 
   if (chart) {
     chart.data.labels = labels;
@@ -191,7 +233,7 @@ async function refresh() {
     console.error("갱신 실패:", e);
   }
 }
-loadMeta().then(() => { refresh(); setInterval(refresh, 500); });
+loadMeta().then(() => { refresh(); setInterval(refresh, 3000); });
 </script>
 
 </body>
