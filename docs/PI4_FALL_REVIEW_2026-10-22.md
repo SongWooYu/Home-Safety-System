@@ -1,5 +1,10 @@
 # Pi4 사건 캡처 · 최근 50건 · 현재 WebRTC 확인
 
+> 후속 수정: [Cloudflare 공개 영상/자동·수동 제어](PI4_CLOUDFLARE_MANUAL_CONTROLS_2026-10-22.md).
+> 제목은 `낙상 이벤트 확인`, Tailscale 필수 안내는 제거했다. Pi4 HTTPS 출처 검사
+> 오류를 수정했고 WebRTC 불가 시 Pi5 공개 HTTPS 원본 MJPEG로 복귀한다.
+> 아래의 초기 "MJPEG로 복귀하지 않는다"는 설계 기록이며 현재 정책은 위 후속 문서다.
+
 ## 사용자 경로
 
 - 협업자 대시보드: `http://192.168.1.10:8000`

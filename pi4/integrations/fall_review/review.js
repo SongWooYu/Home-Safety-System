@@ -109,26 +109,50 @@
   }
 
   const video = $("live-video");
+  const fallbackImage = $("live-fallback");
+  let fallbackActive = false;
   let active = null, retry = null, retryDelay = 2000, gone = false;
   function removeSession(url) {
     if (url) fetch(url,{method:"DELETE",keepalive:true,signal:AbortSignal.timeout(10000)}).catch(()=>{});
   }
   function closePeer() {
     clearTimeout(retry); retry = null;
+    fallbackActive = false; fallbackImage.hidden = true;
+    fallbackImage.src = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
     const old = active; active = null;
     if (old) { clearTimeout(old.deadline); clearInterval(old.monitor); old.pc.close(); removeSession(old.session); }
     video.pause(); video.srcObject = null; video.hidden = true; $("video-message").hidden = false;
   }
   function fail(peer, message) {
     if (active !== peer) return;
-    closePeer(); $("transport").textContent = message;
-    $("video-message").textContent = "Pi5 직접 연결 실패. 같은 LAN 또는 Tailscale 연결을 확인하세요. Pi4 영상 중계로 전환하지 않습니다.";
-    if (!document.hidden && !gone) { retry = setTimeout(connect,retryDelay); retryDelay = Math.min(30000,retryDelay*2); }
+    closePeer(); startFallback(message);
   }
+  function startFallback(reason) {
+    if (document.hidden || gone) return;
+    fallbackActive = true;
+    $("transport").textContent = `${reason} · HTTPS 영상 연결 중…`;
+    $("video-message").textContent = "Pi5 공개 주소에서 원본 영상을 가져옵니다…";
+    // Browser -> Cloudflare -> Pi5 only. No Pi4 video relay, no extra inference.
+    fallbackImage.src = `https://vision.aihous.site/stream/dahua?overlay=false&t=${Date.now()}`;
+  }
+  fallbackImage.onload = () => {
+    if (!fallbackActive || !fallbackImage.src.startsWith("https://vision.aihous.site/")) return;
+    fallbackImage.hidden = false; $("video-message").hidden = true;
+    $("transport").textContent = "HTTPS 원본 영상 · MJPEG · Pi5 Cloudflare 경유";
+    retryDelay = 2000;
+  };
+  fallbackImage.onerror = () => {
+    if (!fallbackActive) return;
+    fallbackImage.hidden = true; $("video-message").hidden = false;
+    $("transport").textContent = "HTTPS 영상 연결 오류 · 자동 재시도";
+    $("video-message").textContent = "Pi5 공개 영상에 연결할 수 없습니다. 잠시 후 다시 시도합니다.";
+    clearTimeout(retry); retry = setTimeout(()=>startFallback("HTTPS 재연결"),retryDelay);
+    retryDelay = Math.min(30000,retryDelay*2);
+  };
   async function connect() {
     closePeer(); if (document.hidden || gone) return;
     $("transport").textContent = "Pi5 WebRTC 직접 연결 중…"; $("video-message").textContent = "연결 중…";
-    if (!window.RTCPeerConnection) { $("transport").textContent = "이 브라우저는 WebRTC를 지원하지 않습니다."; return; }
+    if (!window.RTCPeerConnection) { startFallback("WebRTC 미지원"); return; }
     const pc = new RTCPeerConnection();
     const peer = {pc, session:null, frames:-1, advanced:performance.now(),monitor:null,deadline:null}; active = peer;
     peer.deadline = setTimeout(()=>fail(peer,"연결 시간 초과 · 자동 재시도"),14000);

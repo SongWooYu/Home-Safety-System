@@ -106,6 +106,18 @@ class FallReviewTest(unittest.TestCase):
             self.assertEqual(self.client.delete("/api/fall-review/whep/closed-session").status_code, 204)
             self.assertEqual(self.post_sdp().status_code, 503)
 
+    def test_cloudflare_from_exact_pi5_proxy_only(self):
+        with patch.object(module, "build_opener") as factory:
+            factory.return_value.open.side_effect = URLError("valid origin reached upstream")
+            def post(peer, host="www.aihous.site", origin="https://www.aihous.site"):
+                return self.client.post("/api/fall-review/whep",data="v=0",content_type="application/sdp",
+                    headers={"Host":host,"Origin":origin,"X-Forwarded-Proto":"https"},
+                    environ_overrides={"REMOTE_ADDR":peer})
+            self.assertEqual(post("192.168.1.20").status_code,503)
+            self.assertEqual(post("192.168.1.99").status_code,403)
+            self.assertEqual(post("192.168.1.20", origin="https://evil.example").status_code,403)
+            self.assertEqual(post("192.168.1.20", host="evil.example",origin="https://evil.example").status_code,403)
+
     def test_current_status_whitelisted_cached_and_offline_unknown(self):
         with patch.object(module, "build_opener") as factory:
             upstream = factory.return_value.open.return_value.__enter__.return_value

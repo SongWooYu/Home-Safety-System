@@ -1,0 +1,69 @@
+diff --git a/web/app.py b/web/app.py
+--- a/web/app.py
++++ b/web/app.py
+@@ -7,6 +7,8 @@ app = Flask(__name__)
+ # Optional, isolated vision-event notification (no changes to sensor/DB logic).
+ from fall_notice import install as install_fall_notice
+ install_fall_notice(app)
++from device_control import install as install_device_control
++install_device_control(app)
+ 
+ def get_conn():
+     return psycopg2.connect(
+diff --git a/web/index.html b/web/index.html
+--- a/web/index.html
++++ b/web/index.html
+@@ -239,3 +239,4 @@
+ <script src="/static/fall_notice.js" defer></script>
++<script src="/device-control.js" defer></script>
+ </body>
+ </html>
+diff --git a/backend/automation.py b/backend/automation.py
+--- a/backend/automation.py
++++ b/backend/automation.py
+@@ -1,4 +1,5 @@
+ import time
+ import paho.mqtt.client as mqtt
++from control_gate import AutomationGate
+ 
+ # ===== 기준값 =====
+@@ -47,10 +48,12 @@
+ 
+ client = mqtt.Client()
++control = AutomationGate(client)
++for controlled_room in ("entrance", "livingroom", "bathroom", "kitchen"):
++    get_state(controlled_room)
+ 
+ 
+ def command(topic, value):
+-    client.publish(topic, value)
+-    print(f"명령: {topic} = {value}")
++    control.command(topic, value)
+ 
+ 
+ def on_connect(c, userdata, flags, rc):
+@@ -177,12 +180,11 @@
+ 
+ 
+ client.on_connect = on_connect
+-client.on_message = on_message
++client.on_message = lambda c, userdata, msg: control.dispatch(on_message, state, c, userdata, msg)
+ client.connect("localhost", MQTT_PORT, 60)
+ client.loop_start()
+ 
+-while True:
+-    time.sleep(5)
++def run_timers():
+     now = time.time()
+     for room, s in list(state.items()):
+         if s["light_on"] and not s["presence_on"] \
+@@ -199,3 +201,7 @@
+             command(f"home/{room}/light/set", "OFF")
+             s["entrance_light_on"] = False
+-            print("  → 문 닫힌 지 오래됨, 현관 조명 끔")
+\ No newline at end of file
++            print("  → 문 닫힌 지 오래됨, 현관 조명 끔")
++
++while True:
++    time.sleep(5)
++    control.timers(run_timers, state)
