@@ -12,6 +12,8 @@ from flask import Flask, Response, abort, jsonify, render_template, request, ses
 from .config import load_config
 from .audio_api import register_audio_routes
 from .face_enrollment import register_enrollment_routes
+from .fall_demo import register_fall_demo_routes
+from .webrtc import register_webrtc_routes
 from .pipeline import VisionPipeline
 
 
@@ -19,6 +21,8 @@ def create_app(pipeline: VisionPipeline) -> Flask:
     app = Flask(__name__, template_folder="templates")
     register_audio_routes(app, pipeline)
     register_enrollment_routes(app, pipeline)
+    register_fall_demo_routes(app, pipeline)
+    register_webrtc_routes(app)
     face_admin_token = str(
         pipeline.config.get("face_recognition", {}).get("admin_token", "")
     )

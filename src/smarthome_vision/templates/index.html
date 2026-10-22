@@ -6,8 +6,10 @@
   <title>Vision Lab · 비전 테스트 스테이션</title>
   <script src="{{ url_for('static', filename='theme.js') }}?v=20261022-2"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=20261022-2">
-  <link rel="stylesheet" href="{{ url_for('static', filename='workspace.css') }}?v=20261022-2">
-  <script src="{{ url_for('static', filename='dashboard.js') }}?v=20261022-2" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='workspace.css') }}?v=20261022-3">
+  <script src="{{ url_for('static', filename='stream-player.js') }}?v=20261022-3" defer></script>
+  <script src="{{ url_for('static', filename='dashboard.js') }}?v=20261022-3" defer></script>
+  <script src="{{ url_for('static', filename='fall-test.js') }}?v=20261022-3" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -29,11 +31,12 @@
     <div id="last-fall" class="last-fall" hidden role="status"><span><strong>낙상 감지 기록</strong><span id="last-fall-text"></span></span><button id="ack-fall" class="button">기록 확인</button></div>
     <div id="connection-warning" class="connection-warning" hidden>상태 연결이 끊겼습니다. 화면의 마지막 값은 현재 판정이 아닙니다. 자동으로 다시 연결합니다.</div>
     <div class="workspace tab-panel" id="monitor" role="tabpanel" aria-labelledby="tab-monitor">
+      <div class="stream-controls"><label for="stream-mode">영상 재생</label><select id="stream-mode"><option value="auto">WebRTC 우선 · 실패 시 MJPEG</option><option value="overlay">오버레이 확인 · MJPEG</option></select><span>원본 재생 중에도 AI 분석·경보는 계속됩니다.</span></div>
       <section class="monitor-column" aria-label="낙상 분석">
         {% if 'dahua' in cameras %}
         <article class="camera-card" id="camera-dahua">
           <div class="camera-heading"><div><span class="camera-index">01</span><h2>Dahua <small>낙상 분석 카메라</small></h2></div><div class="camera-actions"><span class="pill" id="online-dahua">연결 중</span><button class="icon-button expand" data-camera="dahua" aria-label="Dahua 영상 확대">⛶</button></div></div>
-          <div class="video-wrap" id="video-dahua"><img class="stream" id="stream-dahua" data-camera="dahua" alt="Dahua 실시간 낙상 분석 영상"><span class="live-tag"><i></i> LIVE</span><span class="video-caption">관절·박스 표시</span><div class="video-alarm" id="video-alarm" hidden>낙상 감지</div></div>
+          <div class="video-wrap" id="video-dahua"><img class="stream" id="stream-dahua" data-camera="dahua" alt="Dahua 실시간 낙상 분석 영상"><span class="live-tag"><i></i> LIVE</span><span class="video-caption transport-label">연결 중</span><div class="video-alarm" id="video-alarm" hidden>낙상 감지</div></div>
           <div class="camera-meta"><span id="people-dahua">사람 대기</span><span><b id="fps-dahua">—</b> FPS</span><span title="디코더 내부 프레임 나이이며 전체 영상 지연은 아닙니다.">입력 버퍼 <b id="buffer-dahua">—</b></span></div>
           <div class="analysis-strip"><div class="analysis-label"><span class="status-dot" id="analysis-dot"></span><div><strong id="analysis-title">분석 연결 중</strong><p id="analysis-detail">움직임을 기다립니다.</p><strong id="decision-label">판정 대상 없음</strong><p id="decision-gate">확정에는 모델 양성과 동작 조건이 모두 필요합니다.</p><p id="diagnostic-health"></p></div></div><div class="motion-score"><span>움직임 점수 <button class="help" type="button" title="약 3.1초의 관절 변화가 학습된 낙상 패턴과 얼마나 닮았는지 나타내는 모델 점수입니다. 실제 낙상 확률이나 최종 경보가 아닙니다.">?</button></span><strong id="motion-score">—</strong><small id="motion-score-note">분석할 사람이 없습니다</small></div></div>
         </article>
@@ -43,13 +46,14 @@
           <p class="section-description">Pi4 스피커에서 “낙상이 감지되었습니다.”를 한 번 재생합니다. 실제 낙상 이벤트나 반복 경보는 발생시키지 않습니다.</p>
           <div class="face-form"><button id="audio-test" class="button primary" type="button">음성 1회 재생</button><label class="name-field"><span>선택 음량 <output id="audio-volume-value">70%</output></span><input id="audio-volume" type="range" min="60" max="100" step="5" value="70" aria-label="시험할 스피커 음량 (60~100%)"></label><button id="audio-volume-apply" class="button" type="button">음량 적용</button></div>
           <p id="audio-status" class="form-status" role="status">선택 음량은 현재 장치 음량이 아닙니다. 먼저 적용한 뒤 재생하세요. 현장 스피커 연결이 필요합니다.</p>
+          <div class="fall-test-controls"><h3>낙상 단계별 MQTT 시험</h3><p class="section-description">실제 모델 판정을 바꾸지 않고 Pi4에 시험 이벤트를 보냅니다. <b>확정은 스피커 경보를 울립니다.</b> Pi4가 시험 상태를 30초 후 자동 해제합니다. 실제 낙상 경보는 해제하지 않습니다.</p><div class="test-buttons"><button type="button" class="button" data-fall-stage="suspected">1 · 의심 보내기</button><button type="button" class="button" data-fall-stage="confirmed">2 · 확정 / 경보</button><button type="button" class="button" data-fall-stage="cleared">3 · 시험 해제</button></div><p id="fall-test-status" class="form-status" role="status">연기 낙상 없이 통신·팝업·스피커를 시험할 수 있습니다.</p><p id="fall-test-received" class="form-status">Pi4 수신 상태 확인 중</p></div>
         </section>
       </section>
       <section class="face-column" aria-label="얼굴 인식과 등록">
         {% for camera_id in face_cameras %}
         <article class="camera-card" id="camera-{{ camera_id }}">
           <div class="camera-heading"><div><span class="camera-index">02</span><h2>Camera Module 3 <small>얼굴 인식 · 전체 화각</small></h2></div><div class="camera-actions"><span class="pill" id="online-{{ camera_id }}">연결 중</span><button class="icon-button expand" data-camera="{{ camera_id }}" aria-label="얼굴 영상 확대">⛶</button></div></div>
-          <div class="video-wrap" id="video-{{ camera_id }}"><img class="stream" id="stream-{{ camera_id }}" data-camera="{{ camera_id }}" alt="Camera Module 3 실시간 얼굴 인식 영상"><span class="live-tag"><i></i> LIVE</span><span class="video-caption">이름·얼굴 박스 표시</span></div>
+          <div class="video-wrap" id="video-{{ camera_id }}"><img class="stream" id="stream-{{ camera_id }}" data-camera="{{ camera_id }}" alt="Camera Module 3 실시간 얼굴 인식 영상"><span class="live-tag"><i></i> LIVE</span><span class="video-caption transport-label">연결 중</span></div>
           <div class="camera-meta"><strong id="people-{{ camera_id }}">얼굴을 기다리는 중</strong><span><b id="fps-{{ camera_id }}">—</b> FPS</span></div>
         </article>
         {% endfor %}

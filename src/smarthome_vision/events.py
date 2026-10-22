@@ -7,6 +7,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
+from .evidence import EvidenceStore
 
 import paho.mqtt.client as mqtt
 
@@ -19,6 +20,9 @@ class EventBus:
         self._client: mqtt.Client | None = None
         self._connected = False
         self.rejected_events = 0
+        self.evidence = EvidenceStore()
+        self.snapshot_provider = None
+        self.safety_state = None
 
     def start(self) -> None:
         if not self._config.get("enabled", False):
@@ -42,6 +46,7 @@ class EventBus:
             # A failing/slow broker must not accumulate unlimited QoS 1 data.
             client.max_queued_messages_set(256)
             client.on_disconnect = self._on_disconnect
+            client.on_message = self._on_message
             client.connect_async(
                 self._config.get("host", "192.168.1.10"),
                 int(self._config.get("port", 1883)),
@@ -60,6 +65,19 @@ class EventBus:
 
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
         self._connected = getattr(reason_code, "value", reason_code) == 0
+        if self._connected:
+            client.subscribe("home/safety/fall/state", qos=1)
+
+    def _on_message(self, client, userdata, message):
+        if message.topic != "home/safety/fall/state" or len(message.payload) > 16384:
+            return
+        try:
+            data = json.loads(message.payload)
+            if isinstance(data, dict) and data.get("state") in {"normal", "suspected", "alarm", "cancelled"}:
+                self.safety_state = {key: data.get(key) for key in
+                                     ("state", "camera_id", "event_id", "timestamp", "camera_states")}
+        except (ValueError, UnicodeError):
+            pass
 
     def _on_disconnect(self, client, userdata, disconnect_flags=None, reason_code=0, properties=None):
         self._connected = False
@@ -76,7 +94,10 @@ class EventBus:
         details: dict[str, Any] | None = None,
         *,
         publish: bool = True,
+        require_delivery: bool = False,
     ) -> dict[str, Any]:
+        if require_delivery and (self._client is None or not self._connected):
+            raise RuntimeError("Pi4 MQTT 연결이 없어 시험 이벤트를 보내지 않았습니다.")
         event = {
             "schema_version": "1.1",
             "event_id": uuid.uuid4().hex,
@@ -84,8 +105,18 @@ class EventBus:
             "camera_id": camera_id,
             "event_type": event_type,
             "confidence": round(confidence, 4) if confidence is not None else None,
-            "details": details or {},
+            "details": dict(details or {}),
         }
+        if event_type == "fall_confirmed" and self.snapshot_provider is not None:
+            try:
+                source = event["details"].get("source_camera_id", camera_id)
+                captured = self.snapshot_provider(source)
+                if captured and self.evidence.put(event["event_id"], captured[0]):
+                    event["details"]["snapshot"] = {"id": event["event_id"], **captured[1],
+                                                      "expires_seconds": self.evidence.ttl}
+            except Exception as exc:
+                # Image failure must never suppress an actual safety event.
+                print(f"EVENT_SNAPSHOT_FAILED {type(exc).__name__}", flush=True)
         with self._lock:
             self._events.appendleft(event)
 
@@ -103,6 +134,12 @@ class EventBus:
             if result.rc != mqtt.MQTT_ERR_SUCCESS:
                 self.rejected_events += 1
                 print(f"MQTT_EVENT_REJECTED rc={result.rc} total={self.rejected_events}", flush=True)
+            if require_delivery:
+                if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                    raise RuntimeError("MQTT 시험 이벤트 발행이 거부되었습니다.")
+                result.wait_for_publish(timeout=2)
+                if not result.is_published():
+                    raise RuntimeError("MQTT 전달 확인 시간 초과: Pi4 수신 상태를 확인하고 시험 해제를 눌러 주세요.")
         return event
 
     def publish_status(self, camera_id: str, status: dict[str, Any]) -> None:

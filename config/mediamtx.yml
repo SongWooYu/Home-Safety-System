@@ -1,4 +1,4 @@
-# Pi5 LAN media gateway: AI-overlay MJPEG in, browser WebRTC out.
+# Pi5 media gateway: Dahua H.264 pass-through; on-demand clean Camera Module 3.
 logLevel: info
 
 rtsp: true
@@ -19,7 +19,7 @@ webrtcEncryption: false
 webrtcAllowOrigins: ["*"]
 webrtcLocalUDPAddress: :8189
 webrtcLocalTCPAddress: :8189
-webrtcAdditionalHosts: [192.168.1.20]
+webrtcAdditionalHosts: [192.168.1.20, 100.100.207.97]
 
 paths:
   # Clean Dahua H.264 pass-through for the Pi4 control-room dashboard.

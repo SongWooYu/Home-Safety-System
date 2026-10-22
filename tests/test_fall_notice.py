@@ -47,3 +47,22 @@ class FallNoticeTest(unittest.TestCase):
             self.assertEqual(response.headers["Cache-Control"], "no-store")
             self.assertEqual(app.test_client().post("/api/fall-notices").status_code, 405)
             client.return_value.publish.assert_not_called()
+
+    def test_snapshot_only_known_ids_fixed_origin_no_redirects(self):
+        app = Flask(__name__)
+        with patch("paho.mqtt.client.Client"):
+            notices = module.install(app)
+        identifier = "a"*32
+        notices.ingest(self.event(event_id=identifier, details={"test":True, "snapshot":{"id":identifier, "url":"http://evil.example/"}}))
+        event = notices.snapshot()["events"][0]
+        self.assertTrue(event["test"] and event["snapshot_available"])
+        client = app.test_client()
+        self.assertEqual(client.get("/api/fall-notices/unknown/snapshot.jpg").status_code, 404)
+        with patch.object(module, "build_opener") as factory:
+            response = factory.return_value.open.return_value.__enter__.return_value
+            response.headers.get_content_type.return_value = "image/jpeg"
+            response.read.return_value = b"\xff\xd8jpeg"
+            result = client.get(f"/api/fall-notices/{identifier}/snapshot.jpg")
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(factory.return_value.open.call_args.args[0].full_url,
+                             f"http://192.168.1.20:8080/api/events/{identifier}/snapshot.jpg")

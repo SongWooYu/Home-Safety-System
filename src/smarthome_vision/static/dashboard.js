@@ -13,7 +13,6 @@ let lastEventsAt = 0;
 let lastEventSignature = "";
 let lastTick = Date.now();
 const previousOnline = new Map();
-const reconnectTimers = new Map();
 let activeView = "monitor";
 $("theme-select").value = window.visionTheme.get();
 $("theme-select").addEventListener("change", event => window.visionTheme.set(event.target.value));
@@ -54,32 +53,17 @@ $("audio-volume-apply").addEventListener("click", () => {
 });
 
 function stopStream(img) {
-  clearTimeout(reconnectTimers.get(img.id));
-  if (img.dataset.streaming === "true") {
-    img.dataset.streaming = "false";
-    img.src = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
-  }
+  window.visionStreams.stop(img);
 }
 function connectStream(img) {
-  if (!img) return;
-  if (document.hidden || img.closest("[hidden]")) { stopStream(img); return; }
-  clearTimeout(reconnectTimers.get(img.id));
-  img.dataset.streaming = "true";
-  img.src = `/stream/${encodeURIComponent(img.dataset.camera)}?overlay=${img.dataset.overlay || "true"}&t=${Date.now()}`;
+  window.visionStreams.start(img);
 }
 function reconnectStreams() {
   document.querySelectorAll(".stream").forEach(connectStream);
 }
-document.querySelectorAll(".stream").forEach(img => {
-  img.addEventListener("error", () => {
-    clearTimeout(reconnectTimers.get(img.id));
-    if (!document.hidden && !img.closest("[hidden]")) reconnectTimers.set(img.id, setTimeout(() => connectStream(img), 3000));
-  });
-});
 $("reconnect").addEventListener("click", reconnectStreams);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    reconnectTimers.forEach(clearTimeout);
     document.querySelectorAll(".stream").forEach(stopStream);
   } else { reconnectStreams(); }
 });
@@ -248,7 +232,7 @@ function renderStatus(data) {
 const eventLabels = {fall_confirmed:"낙상 확정", fall_suspected:"낙상 의심", fall_cleared:"낙상 상태 해제", person_detected:"사람 감지", person_cleared:"사람 없음"};
 function renderEvents(events) {
   // Preserve a short confirmed event even if the live state recovered between polls.
-  const fall = events.find(e => e.event_type === "fall_confirmed" && !e.details?.shadow);
+  const fall = events.find(e => e.event_type === "fall_confirmed" && !e.details?.shadow && !e.details?.test);
   if (fall && (!latestFall || Date.parse(fall.timestamp) > Date.parse(latestFall.timestamp))) latestFall = fall;
   const signature = events.map(e => e.event_id).join(",");
   if (signature !== lastEventSignature) {
@@ -261,10 +245,17 @@ function renderEvents(events) {
       row.className = `event-row ${event.event_type === "fall_confirmed" ? "danger" : event.event_type === "fall_suspected" ? "warning" : ""}`;
       const indicator = document.createElement("span"); indicator.className = "event-indicator";
       const copy = document.createElement("div");
-      const title = document.createElement("strong"); title.textContent = eventLabels[event.event_type] || event.event_type;
+      const title = document.createElement("strong"); title.textContent = (event.details?.test ? "[시험] " : "") + (eventLabels[event.event_type] || event.event_type);
       const detail = document.createElement("small"); detail.textContent = `${event.camera_id === "dahua" ? "Dahua" : "Camera Module 3"}${event.details?.track_id ? ` · 사람 #${event.details.track_id}` : ""}${event.details?.reason === "track_lost" ? " · 추적 소실로 상태 해제" : ""}${event.details?.confirmation_policy ? ` · 모델 ${percent(event.confidence || 0)} · ${event.details.temporal_positive ? "모델 양성" : "모델 미동의"}` : ""}`;
       const time = document.createElement("time"); time.dateTime = event.timestamp; time.textContent = clock(event.timestamp);
-      copy.append(title, detail); row.append(indicator, copy, time); list.append(row);
+      if (event.details?.test) detail.textContent = "수동 MQTT 시험 · AI 판정 아님 · Dahua 현재 화면";
+      copy.append(title, detail);
+      if (event.details?.snapshot?.id) {
+        const link = document.createElement("a"); link.textContent = "캡처 보기 ↗";
+        link.href = `/api/events/${encodeURIComponent(event.event_id)}/snapshot.jpg`; link.target = "_blank"; link.rel = "noopener";
+        copy.append(link);
+      }
+      row.append(indicator, copy, time); list.append(row);
     }
     if (!events.length) { const p = document.createElement("p"); p.className = "empty"; p.textContent = "아직 감지 이벤트가 없습니다."; list.append(p); }
   }

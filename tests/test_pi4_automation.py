@@ -5,6 +5,7 @@ import json
 import sys
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -34,6 +35,8 @@ class Pi4AutomationTest(unittest.TestCase):
     def setUp(self):
         automation.camera_states.clear()
         automation.cancelled = False
+        automation.test_deadline = None
+        automation.seen_event_ids.clear()
         self.client = FakeClient()
 
     def test_dashboard_test_alarm_and_cancel(self):
@@ -64,6 +67,21 @@ class Pi4AutomationTest(unittest.TestCase):
             if topic == automation.ALARM_TOPIC
         ]
         self.assertFalse(alarm_messages[-1]["active"])
+
+    def test_test_clear_does_not_clear_real_alarm(self):
+        automation.handle_event(self.client, {"camera_id":"dahua", "event_type":"fall_confirmed"})
+        automation.handle_event(self.client, {"camera_id":"manual-test", "event_type":"fall_confirmed"})
+        automation.handle_event(self.client, {"camera_id":"manual-test", "event_type":"fall_cleared"})
+        self.assertEqual(automation.camera_states["dahua"], "confirmed")
+        self.assertTrue([m[1] for m in self.client.messages if m[0] == automation.ALARM_TOPIC][-1]["active"])
+
+    def test_receiver_test_expiry_after_pi5_disconnect(self):
+        with patch.object(automation.time, "monotonic", return_value=100):
+            automation.handle_event(self.client, {"camera_id":"manual-test", "event_type":"fall_confirmed"})
+        with patch.object(automation.time, "monotonic", return_value=131):
+            automation.expire_test(self.client)
+        self.assertEqual(automation.camera_states["manual-test"], "normal")
+        self.assertFalse([m[1] for m in self.client.messages if m[0] == automation.ALARM_TOPIC][-1]["active"])
 
 
 if __name__ == "__main__":

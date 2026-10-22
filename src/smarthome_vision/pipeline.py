@@ -1966,6 +1966,25 @@ class VisionPipeline:
                 face_config,
                 float(config["mqtt"].get("status_interval_seconds", 5)),
             )
+        self.event_bus.snapshot_provider = self.capture_event_snapshot
+
+    def capture_event_snapshot(self, camera_id):
+        """One clean, recent frame at confirmation time; independent of viewers."""
+        worker = self.workers.get(camera_id)
+        if worker is None:
+            return None
+        with worker._lock:
+            captured_at = worker._latest_frame_captured_at
+            if captured_at is None or time.monotonic() - captured_at > 2 or worker._latest_frame is None:
+                return None
+            frame = worker._latest_frame.copy()
+        age = time.monotonic() - captured_at
+        if frame.shape[1] > 960:
+            frame = cv2.resize(frame, (960, round(frame.shape[0] * 960 / frame.shape[1])))
+        ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+        return (jpeg.tobytes(), {"camera_id": camera_id, "capture_age_ms": round(age * 1000),
+                                "width": frame.shape[1], "height": frame.shape[0],
+                                "kind": "confirmation_latest_frame"}) if ok else None
 
     @staticmethod
     def _build_source(config: dict[str, Any]) -> CameraSource:

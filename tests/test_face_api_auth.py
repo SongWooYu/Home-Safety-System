@@ -11,6 +11,8 @@ class FakeWorker:
 
 class FakePipeline:
     def __init__(self):
+        from smarthome_vision.events import EventBus
+        self.event_bus = EventBus({})
         self.config = {"face_recognition": {"admin_token": "delete-secret"}}
         self.workers = {"cam3": FakeWorker()}
         self.face_registry = object()
