@@ -14,16 +14,21 @@
       button:focus-visible {outline:3px solid #a8caff;} @keyframes arrive {from {opacity:0;transform:translateY(-8px);} to {opacity:1;transform:translateY(0);}}
       #show-image {position:static;width:100%;height:auto;font-size:14px;padding:10px;margin-top:12px;}
       #fall-image {display:block;width:100%;max-height:45vh;object-fit:contain;margin-top:12px;border-radius:8px;}
+      a {color:#b4d0ff;font:14px/1.5 system-ui,sans-serif;pointer-events:auto;}
+      #history-entry {position:fixed;bottom:20px;right:20px;padding:9px 14px;background:#17202e;border:1px solid #8190a7;border-radius:10px;text-decoration:none;box-shadow:0 4px 18px #0003;}
+      #review-link {display:block;margin-top:10px;}
       @media(prefers-reduced-motion:reduce) {section {animation:none;}}
     </style>
     <section role="dialog" aria-modal="false" aria-labelledby="fall-title" hidden>
       <button type="button" aria-label="낙상 알림 닫기">×</button>
       <h2 id="fall-title">낙상 감지</h2><div role="status" aria-live="polite"><p id="fall-camera"></p><p id="fall-time"></p></div>
       <button type="button" id="show-image" hidden>발생 당시 캡처 확인</button>
-      <img id="fall-image" alt="낙상 확정 시점 카메라 캡처 (시험인 경우 현재 화면)" hidden>
+      <a id="image-link" href="/fall-review" target="_blank" rel="noopener" aria-label="이 사건의 사진과 현재 영상을 새 탭에서 확인"><img id="fall-image" alt="낙상 확정 시점 캡처 · 누르면 현재 영상도 확인 (새 탭)" hidden></a>
       <p id="image-status" role="status"></p>
+      <a id="review-link" href="/fall-review" target="_blank" rel="noopener">이 사건 · 현재 영상 확인 ↗</a>
       <small>현장 상황을 확인해 주세요.<br>닫기는 알림창만 숨깁니다. 스피커 경보는 해제하지 않습니다.</small>
-    </section>`;
+    </section>
+    <a id="history-entry" href="/fall-review" target="_blank" rel="noopener">낙상 기록 · 현재 영상 ↗</a>`;
   document.body.append(host);
   const panel = root.querySelector("section");
   const dismissed = new Set();
@@ -42,7 +47,7 @@
     picture.src = `/api/fall-notices/${encodeURIComponent(current)}/snapshot.jpg`;
     picture.hidden = false;
   });
-  picture.onload = () => { root.getElementById("image-status").textContent = "확정 시점 최신 프레임 · 최대 1시간/50장 보관 · 재시작 시 삭제"; };
+  picture.onload = () => { root.getElementById("image-status").textContent = "발생 당시 분석 프레임 · 사진을 누르면 새 탭에서 현재 영상 확인"; };
   picture.onerror = () => { picture.hidden = true; root.getElementById("image-status").textContent = "캡처가 만료되었거나 Pi5에 연결할 수 없습니다."; };
   document.addEventListener("pointerdown", event => {
     if (!panel.hidden && !event.composedPath().includes(host)) dismiss();
@@ -62,6 +67,7 @@
       if (events.length) {
         const event = events[events.length - 1];
         current = event.event_id;
+        for (const id of ["image-link", "review-link"]) root.getElementById(id).href = `/fall-review?event=${encodeURIComponent(current)}`;
         root.getElementById("fall-title").textContent = event.test ? "[시험] 낙상 감지" : "낙상 감지";
         picture.hidden = true; picture.removeAttribute("src");
         root.getElementById("image-status").textContent = event.test ? "AI 판정이 아닌 수동 통신 시험입니다. 시험 경보는 30초 후 자동 해제됩니다." : "";
