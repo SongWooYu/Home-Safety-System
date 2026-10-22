@@ -61,6 +61,8 @@ Pi4 메인 대시보드의 차트 아래 `시연 · 기기 제어` 독립 패널
   수동 부저 시연을 바로 꺼버리지 않는다.
 - 수동으로 보낸 값은 자동화 엔진 내부 상태에도 반영한다. 자동 복귀 뒤 예전
   light_on/aircon_on/curtain_open 등을 바탕으로 잘못 판단하지 않게 한다.
+  수동 중에도 presence/door의 ON→OFF 같은 입력 상태는 관찰하며, 자동 출력만 막는다.
+  자동으로 돌아갔을 때 이미 닫힌 문/사라진 재실 상태가 예전 값으로 남지 않게 한다.
 - 버튼 성공은 MQTT QoS 1 전달 확인이지 실제 릴레이/모터 동작 완료 ACK가 아니다.
   UI에도 `마지막 명령`으로 표시한다.
 
@@ -120,3 +122,23 @@ drop-in은 코드 원복 후 제거할 수 있으나 다른 서비스/데이터�
   MJPEG, 50건 기록과 새 탭, 숨김/복귀. 브라우저용 사건만 주입하며 실제 낙상 발행 없음.
 - `tests/browser_device_control_check.py`: 자동/수동 UI, 6기기 버튼, 가스 예외,
   엔진 오프라인, 작은 화면. 실제 제어 API 대신 시험 응답을 사용한다.
+
+### 배포 검증 (2026-10-22 16:22 이후)
+
+- 원본 백업: Pi4 `/home/pi/Home-Safety-System/runtime/device-control-backup.Xwnn1L`.
+- 전체 Python 회귀 **120개 통과**. 실제 원본 규칙에 후크를 붙인 모의 실행 포함.
+- 공개 `https://www.aihous.site/fall-review`에서 WHEP 201, 원격 후보
+  `192.168.1.20:8189 UDP host`, WebRTC 재생 확인. 강제 정지 시 공개 원본
+  HTTPS MJPEG 전환 및 새 탭/50건 목록 회귀 테스트 통과.
+- `https://www.aihous.site`에서 제어 패널 브라우저 시험 통과(기기 명령 API는
+  시험 응답으로 대체). 일반 브라우저의 실제 `/api/control-mode` GET/POST 200도 확인.
+  사용자가 이미 수동 모드를 사용 중이어서 실제 검증 요청은 **현재 모드를 그대로
+  다시 설정하는 멱등 요청**만 보내고 선택을 강제로 바꾸지 않았다.
+- 별도 Python urllib의 공개 URL 요청은 Cloudflare 403을 받아 중단됐다.
+  이것을 모드 전환 성공으로 계산하지 않는다. 일반 Chromium 요청은 200이며
+  Cloudflare 보안 정책을 완화하지 않았다.
+- 사용자 조작으로 생성된 manual 마지막 명령과 이후 auto 복귀 명령이 실제 상태
+  API에 나타나는 것을 확인했다. 물리 릴레이/모터의 작동 여부를 직접 확인한 것은 아니다.
+- web/automation/collector/audio/sync timer 모두 active. Pi5 두 카메라 online,
+  MQTT 연결/거부 0, 확인 시 Hailo 13.04 FPS. 모델·15 FPS 입력 계약 미변경.
+- `runtime/pi4-manual-controls-verified.png`에 실제 패널 화면을 보관했다(Git 제외).

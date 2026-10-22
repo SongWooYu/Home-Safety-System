@@ -69,6 +69,18 @@ class DeviceControlTest(unittest.TestCase):
         self.gate.timers(evaluate,self.states)
         self.client.publish.assert_called_once_with("home/livingroom/light/set","OFF",qos=0,retain=False)
 
+    def test_manual_preserves_edge_triggered_presence_and_door_without_outputs(self):
+        self.states["livingroom"].update(presence_on=True,door_open=True)
+        self.mode("manual")
+        handler=Mock()
+        for metric,value in (("presence",b"OFF"),("door",b"CLOSED"),("motion",b"ON")):
+            self.gate.dispatch(handler,self.states,self.client,None,SimpleNamespace(topic=f"home/livingroom/{metric}",payload=value))
+        self.assertFalse(self.states["livingroom"]["presence_on"])
+        self.assertFalse(self.states["livingroom"]["door_open"])
+        self.assertGreater(self.states["livingroom"]["door_closed_at"],0)
+        self.assertGreater(self.states["livingroom"]["last_motion"],0)
+        handler.assert_not_called();self.client.publish.assert_not_called()
+
     def test_gas_priority_and_neutral_gas_does_not_cancel_demo(self):
         self.mode("manual")
         handler=Mock()

@@ -36,11 +36,32 @@ class AutomationGate:
                 previous_gas = data.get("gas_active",False)
                 if gas and message.payload in {b"ON",b"OFF"}:
                     data["gas_active"] = message.payload == b"ON"
+                if data["mode"] == "manual" and message is not None:
+                    self.observe_paused(states,message)
                 # Repeated safe gas readings must not immediately cancel a
                 # manually demonstrated buzzer. Real gas ON/clear takes priority.
                 yield data["mode"] == "auto" or (gas and (previous_gas or data["gas_active"]))
             finally:
                 self.current = None
+
+    @staticmethod
+    def observe_paused(states, message):
+        # Edge-triggered presence/door OFF messages must not be lost while
+        # automatic outputs are paused, otherwise auto resume uses stale flags.
+        parts = message.topic.split("/")
+        if len(parts) != 3 or parts[0] != "home" or parts[1] not in states:
+            return
+        state, metric = states[parts[1]], parts[2]
+        value = message.payload
+        if metric in {"motion","presence"} and value in {b"ON",b"OFF"}:
+            if metric == "presence":
+                state["presence_on"] = value == b"ON"
+            if value == b"ON":
+                state["last_motion"] = time.time()
+        elif metric == "door" and value in {b"OPEN",b"CLOSED",b"CLOSE"}:
+            if value != b"OPEN" and state.get("door_open"):
+                state["door_closed_at"] = time.time()
+            state["door_open"] = value == b"OPEN"
 
     def command(self, topic, value):
         parts = topic.split("/")
