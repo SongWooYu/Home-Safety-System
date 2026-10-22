@@ -75,7 +75,7 @@
         if (!active()) return;
         clearTimeout(state.timer); state.mode = "webrtc";
         img.hidden = true; video.hidden = false;
-        label(img, "WebRTC · 원본 / AI 판정은 아래 표시");
+        label(img, "WebRTC 원본 · 박스 OFF / AI 분석 ON");
       });
       await pc.setLocalDescription(await pc.createOffer());
       await new Promise(resolve => {

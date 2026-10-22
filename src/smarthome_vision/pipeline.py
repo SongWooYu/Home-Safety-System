@@ -12,22 +12,12 @@ import cv2
 import numpy as np
 
 from .events import EventBus
+from .pose_overlay import POSE_SKELETON, draw_pose_shapes
 from .face_registry import FaceRegistry
 from .presentation import analysis_readiness
 from .inference import HailoPoseEstimator
 from .sources import PiCameraSource, RtspSource
 from .sources.base import CameraSource
-
-
-POSE_SKELETON = (
-    (5, 7), (7, 9),
-    (6, 8), (8, 10),
-    (5, 6),
-    (5, 11), (6, 12),
-    (11, 12),
-    (11, 13), (13, 15),
-    (12, 14), (14, 16),
-)
 
 
 EDGEFALL_STATE_COLORS = {
@@ -366,6 +356,8 @@ class CameraWorker:
         self._clean_stream_clients = 0
         self._detections: list[dict] = []
         self._poses: list[dict] = []
+        # Exactly one immutable-by-convention frame/result pair, not a video queue.
+        self._pose_evidence = None
         self._online = False
         self._error: str | None = None
         self._last_frame_at: float | None = None
@@ -726,6 +718,7 @@ class CameraWorker:
                     with self._lock:
 
                         self._poses = poses
+                        self._pose_evidence = (frame, poses, frame_seq, frame_captured_at)
                         self._detections = (
                             detections
                         )
@@ -1144,17 +1137,7 @@ class CameraWorker:
             0.25,
         )
 
-        for pose in primary_poses:
-            keypoints = pose["keypoints"]
-            for start, end in POSE_SKELETON:
-                if keypoints[start][2] < 0.25 or keypoints[end][2] < 0.25:
-                    continue
-                start_point = point(keypoints[start][0], keypoints[start][1])
-                end_point = point(keypoints[end][0], keypoints[end][1])
-                cv2.line(frame, start_point, end_point, (0, 165, 255), 2)
-            for x, y, confidence in keypoints:
-                if confidence >= 0.25:
-                    cv2.circle(frame, point(x, y), 3, (0, 220, 255), -1)
+        draw_pose_shapes(frame, primary_poses, source_shape, boxes=False)
 
         for detection in self._detections:
             x1, y1, x2, y2 = box(detection["box"])
@@ -1968,23 +1951,45 @@ class VisionPipeline:
             )
         self.event_bus.snapshot_provider = self.capture_event_snapshot
 
-    def capture_event_snapshot(self, camera_id):
-        """One clean, recent frame at confirmation time; independent of viewers."""
+    def capture_event_snapshot(self, camera_id, *, details=None):
+        """Render the same frame as its pose result, once per confirmed event."""
+        details = details or {}
         worker = self.workers.get(camera_id)
         if worker is None:
             return None
         with worker._lock:
-            captured_at = worker._latest_frame_captured_at
-            if captured_at is None or time.monotonic() - captured_at > 2 or worker._latest_frame is None:
+            packet = worker._pose_evidence
+            matched = packet is not None and packet[3] is not None and time.monotonic() - packet[3] <= 2
+            if matched:
+                raw, poses, frame_seq, captured_at = packet
+            else:
+                # Never combine old pose coordinates with a newer raw frame.
+                raw, poses = worker._latest_frame, []
+                frame_seq, captured_at = worker._latest_frame_seq, worker._latest_frame_captured_at
+            if captured_at is None or time.monotonic() - captured_at > 2 or raw is None:
                 return None
-            frame = worker._latest_frame.copy()
+            frame = raw.copy()
         age = time.monotonic() - captured_at
+        source_shape = frame.shape
         if frame.shape[1] > 960:
             frame = cv2.resize(frame, (960, round(frame.shape[0] * 960 / frame.shape[1])))
+        overlay = draw_pose_shapes(frame, poses, source_shape)
+        # Add a separate footer, preserving the camera image and visible joints.
+        height = frame.shape[0]
+        frame = cv2.copyMakeBorder(frame, 0, 40, 0, 0, cv2.BORDER_CONSTANT, value=(20, 25, 32))
+        title = "MANUAL TEST - NOT AI FALL" if details.get("test") is True else "FALL CONFIRMED"
+        pose_text = f"POSE {overlay['boxes']} / JOINTS {overlay['visible_keypoints']}" if matched else "POSE UNAVAILABLE"
+        caption = f"{title} | {pose_text} | FRAME {frame_seq}"
+        caption_width = cv2.getTextSize(caption, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)[0][0]
+        text_scale = 0.55 * min(1, (frame.shape[1] - 20) / max(1, caption_width))
+        cv2.putText(frame, caption, (10, height + 26),
+                    cv2.FONT_HERSHEY_SIMPLEX, text_scale, (240, 240, 240), 1, cv2.LINE_AA)
         ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
         return (jpeg.tobytes(), {"camera_id": camera_id, "capture_age_ms": round(age * 1000),
                                 "width": frame.shape[1], "height": frame.shape[0],
-                                "kind": "confirmation_latest_frame"}) if ok else None
+                                "kind": "analyzed_frame_pose_overlay" if matched else "latest_frame_no_pose",
+                                "frame_seq": frame_seq, "pose_frame_matched": bool(matched),
+                                "overlay": overlay}) if ok else None
 
     @staticmethod
     def _build_source(config: dict[str, Any]) -> CameraSource:

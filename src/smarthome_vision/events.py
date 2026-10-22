@@ -110,7 +110,7 @@ class EventBus:
         if event_type == "fall_confirmed" and self.snapshot_provider is not None:
             try:
                 source = event["details"].get("source_camera_id", camera_id)
-                captured = self.snapshot_provider(source)
+                captured = self.snapshot_provider(source, details=event["details"])
                 if captured and self.evidence.put(event["event_id"], captured[0]):
                     event["details"]["snapshot"] = {"id": event["event_id"], **captured[1],
                                                       "expires_seconds": self.evidence.ttl}

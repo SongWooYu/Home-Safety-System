@@ -31,7 +31,7 @@
     <div id="last-fall" class="last-fall" hidden role="status"><span><strong>낙상 감지 기록</strong><span id="last-fall-text"></span></span><button id="ack-fall" class="button">기록 확인</button></div>
     <div id="connection-warning" class="connection-warning" hidden>상태 연결이 끊겼습니다. 화면의 마지막 값은 현재 판정이 아닙니다. 자동으로 다시 연결합니다.</div>
     <div class="workspace tab-panel" id="monitor" role="tabpanel" aria-labelledby="tab-monitor">
-      <div class="stream-controls"><label for="stream-mode">영상 재생</label><select id="stream-mode"><option value="auto">WebRTC 우선 · 실패 시 MJPEG</option><option value="overlay">오버레이 확인 · MJPEG</option></select><span>원본 재생 중에도 AI 분석·경보는 계속됩니다.</span></div>
+      <div class="stream-controls"><label for="stream-mode">영상 재생</label><select id="stream-mode"><option value="auto">WebRTC 원본 · 실패 시 MJPEG</option><option value="overlay">오버레이 확인 · 박스·관절·이름 (MJPEG)</option></select><span>WebRTC 원본에는 박스가 없습니다. 박스·관절은 ‘오버레이 확인’으로 보세요. AI 분석·낙상 캡처는 재생 방식과 무관하게 동작합니다.</span></div>
       <section class="monitor-column" aria-label="낙상 분석">
         {% if 'dahua' in cameras %}
         <article class="camera-card" id="camera-dahua">

@@ -15,7 +15,7 @@ class FallDemoTest(unittest.TestCase):
         self.bus._client = Mock()
         self.bus._client.publish.return_value = Mock(rc=0)
         self.bus._client.publish.return_value.is_published.return_value = True
-        self.bus.snapshot_provider = lambda camera: (b"\xff\xd8test", {"camera_id":camera})
+        self.bus.snapshot_provider = lambda camera, **kwargs: (b"\xff\xd8test", {"camera_id":camera})
         app = Flask(__name__)
         register_fall_demo_routes(app, SimpleNamespace(event_bus=self.bus))
         self.client = app.test_client()
