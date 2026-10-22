@@ -128,3 +128,20 @@ API: `POST /api/audio/test {}`, `POST /api/audio/volume {"volume":50}`.
 6. 재부팅/절전 복귀/장시간 시험, 권한·네트워크 접근 범위 결정.
 
 Pi5 Hailo/EdgeFall v6 모델·임계값·카메라 FPS·얼굴 등록 데이터는 변경하지 않았다.
+
+## 6. 적용 후 검증
+
+- 변경 코드 `877b82e`를 GitHub에 올리고 Pi4도 fast-forward로 갱신.
+- Pi4 10:55:26 KST 음성 서비스 갱신. `using cached natural TTS` 기록과 WAV 해시 일치.
+- 실제 Chromium Pi5 화면에서 관리키 없이 음량 50% 적용 후 음성 버튼 1회 실행.
+- Pi4 journal: 10:57:34 음량 50%, 10:57:37 재생 큐 수신,
+  10:57:41 `one-shot TTS playback completed`. ALSA 프로세스 성공이며 실제 청취 평가는
+  사용자가 해야 한다. 재생 장치는 `bcm2835 Headphones` 3.5mm다.
+- 새 시험은 `fall_confirmed`/반복 경보를 발행하지 않았다.
+- 전체 자동 테스트 69개 통과, shell 문법 및 Git diff 검사 통과.
+- 두 Pi5 실시간 영상 렌더링, JavaScript 오류 0, 390px 모바일 가로 넘침 없음.
+- Pi4 Compose 기본 활성 목록은 `mqtt`, `automation`만 확인.
+- 8081 리스너 없음, 협업자 8000 `/api/latest` HTTP 200.
+- 두 Git 작업 트리 깨끗함, 협업자 동기화 timer와 8000 web 서비스 active.
+- 백업은 `smarthome` DB의 custom-format dump이며 `pg_restore --list` 목차 확인.
+  복원 시험, 클러스터 전체/다른 DB 백업, 스키마 무결성 검사는 아직 하지 않았다.
