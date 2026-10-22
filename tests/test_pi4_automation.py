@@ -83,6 +83,21 @@ class Pi4AutomationTest(unittest.TestCase):
         self.assertEqual(automation.camera_states["manual-test"], "normal")
         self.assertFalse([m[1] for m in self.client.messages if m[0] == automation.ALARM_TOPIC][-1]["active"])
 
+    def test_queued_old_test_is_not_replayed(self):
+        automation.handle_event(self.client, {"camera_id":"manual-test", "event_type":"fall_confirmed",
+                                             "timestamp":"2020-01-01T00:00:00+00:00"})
+        self.assertEqual(self.client.messages, [])
+
+    def test_test_expiry_preserves_an_actual_fall(self):
+        automation.handle_event(self.client, {"camera_id":"dahua", "event_type":"fall_confirmed"})
+        with patch.object(automation.time, "monotonic", return_value=100):
+            automation.handle_event(self.client, {"camera_id":"manual-test", "event_type":"fall_confirmed"})
+        with patch.object(automation.time, "monotonic", return_value=131):
+            automation.expire_test(self.client)
+        self.assertEqual(automation.camera_states["dahua"], "confirmed")
+        self.assertEqual(automation.camera_states["manual-test"], "normal")
+        self.assertTrue([m[1] for m in self.client.messages if m[0] == automation.ALARM_TOPIC][-1]["active"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -66,7 +66,7 @@
         picture.hidden = true; picture.removeAttribute("src");
         root.getElementById("image-status").textContent = event.test ? "AI 판정이 아닌 수동 통신 시험입니다. 시험 경보는 30초 후 자동 해제됩니다." : "";
         root.getElementById("show-image").hidden = !event.snapshot_available;
-        root.getElementById("fall-camera").textContent = `${event.camera_id === "dahua" ? "Dahua 낙상 카메라" : event.camera_id}에서 낙상이 감지되었습니다.`;
+        root.getElementById("fall-camera").textContent = event.test ? "Dahua 화면으로 Pi5 → Pi4 경보 연결을 시험합니다." : `${event.camera_id === "dahua" ? "Dahua 낙상 카메라" : event.camera_id}에서 낙상이 감지되었습니다.`;
         root.getElementById("fall-time").textContent = new Date(event.timestamp).toLocaleString("ko-KR");
         panel.hidden = false;
       }

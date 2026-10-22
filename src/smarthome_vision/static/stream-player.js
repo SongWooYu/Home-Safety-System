@@ -8,7 +8,8 @@
     overlays = selector.value === "overlay";
     document.querySelectorAll(".stream").forEach(start);
   });
-  function visible(img) { return !document.hidden && !img.closest("[hidden]"); }
+  // During RTC the fallback img itself is hidden, but its video panel is active.
+  function visible(img) { return !document.hidden && !img.parentElement.closest("[hidden]"); }
   function label(img, text) {
     const caption = img.closest(".video-wrap").querySelector(".transport-label");
     if (caption) caption.textContent = text;

@@ -73,6 +73,14 @@ def publish_state(client, state: str, camera_id: str | None = None, event_id: st
 @serialized
 def handle_event(client, payload: dict) -> None:
     global cancelled, test_deadline
+    if payload.get("camera_id") == "manual-test" and payload.get("timestamp"):
+        try:
+            timestamp = datetime.fromisoformat(payload["timestamp"].replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - timestamp).total_seconds()
+            if not -5 <= age <= 10:
+                return  # A queued old demo must not ring after reconnection.
+        except (ValueError, TypeError, AttributeError):
+            return
     event_id = str(payload.get("event_id", ""))
     if event_id and event_id in seen_event_ids:
         return
