@@ -41,7 +41,7 @@ def parse_audio_volume(raw: str) -> int | None:
     volume = payload.get("volume")
     if isinstance(volume, bool) or not isinstance(volume, int):
         return None
-    return volume if 0 <= volume <= 100 else None
+    return volume if 60 <= volume <= 100 else None
 
 
 def parse_audio_command(raw: str) -> str | None:
@@ -186,7 +186,7 @@ class AlarmPlayer:
         LOG.info("queued one-shot TTS playback")
 
     def set_volume(self, volume: int) -> bool:
-        volume = min(100, max(0, int(volume)))
+        volume = min(100, max(60, int(volume)))
         if volume == self._volume:
             return True
         try:
