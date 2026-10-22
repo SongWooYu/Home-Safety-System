@@ -7,7 +7,7 @@ ENV_FILE="$PI4_DIR/.env"
 COMPOSE_FILE="$PI4_DIR/compose.yml"
 
 [[ -f "$ENV_FILE" ]] || { echo "Run install.sh first."; exit 1; }
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps
-web_port="$(sed -n 's/^WEB_PORT=//p' "$ENV_FILE")"
-curl -fsS "http://127.0.0.1:${web_port:-8081}/health"
-echo
+docker compose --profile standalone-db --profile legacy-web --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps -a
+systemctl --no-pager status smarthome-audio-alarm.service sync-collaborator-smarthome.timer || true
+echo "8081 is retired. Collaborator dashboard: http://192.168.1.10:8000 (not yet integrated)."
+echo "Audio test controls: http://192.168.1.20:8080/#audio-test-panel"

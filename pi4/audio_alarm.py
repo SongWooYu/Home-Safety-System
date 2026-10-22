@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import queue
+import shutil
 import signal
 import struct
 import subprocess
@@ -92,6 +93,19 @@ def generate_alarm_wav(path: Path, sample_rate: int = 48000) -> None:
 
 def generate_tts_wav(path: Path, text: str) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Generate natural speech once during setup; alarm playback stays offline.
+    cached = Path(os.getenv("ALARM_TTS_WAV", "/usr/local/share/home-safety/fall-detected-ko.wav"))
+    if cached.is_file():
+        try:
+            with wave.open(str(cached), "rb") as audio:
+                if (audio.getnchannels() not in (1, 2) or audio.getsampwidth() != 2
+                        or not 0 < audio.getnframes() / audio.getframerate() <= 30):
+                    raise ValueError("expected 16-bit PCM speech, at most 30 seconds")
+            shutil.copyfile(cached, path)
+            LOG.info("using cached natural TTS: %s", cached.name)
+            return True
+        except (OSError, EOFError, wave.Error, ValueError) as exc:
+            LOG.error("cached TTS invalid, falling back to espeak-ng: %s", exc)
     try:
         completed = subprocess.run(
             [
@@ -139,7 +153,7 @@ class AlarmPlayer:
         self._active = threading.Event()
         self._stop = threading.Event()
         self._lock = threading.Lock()
-        self._one_shots: queue.Queue[Path] = queue.Queue()
+        self._one_shots: queue.Queue[Path] = queue.Queue(maxsize=1)
         self._process: subprocess.Popen | None = None
         self._volume = -1
         self.set_volume(volume)
@@ -161,7 +175,14 @@ class AlarmPlayer:
         if not wav_path.is_file():
             LOG.error("one-shot audio file does not exist: %s", wav_path)
             return
-        self._one_shots.put(wav_path)
+        if self._active.is_set():
+            LOG.info("TTS test skipped while real alarm is active")
+            return
+        try:
+            self._one_shots.put_nowait(wav_path)
+        except queue.Full:
+            LOG.info("TTS test already queued")
+            return
         LOG.info("queued one-shot TTS playback")
 
     def set_volume(self, volume: int) -> bool:
@@ -207,7 +228,7 @@ class AlarmPlayer:
         if process is not None and process.poll() is None:
             process.terminate()
 
-    def _play(self, wav_path: Path) -> None:
+    def _play(self, wav_path: Path) -> bool:
         try:
             process = subprocess.Popen(
                 ["aplay", "-q", "-D", self.device, str(wav_path)],
@@ -221,9 +242,11 @@ class AlarmPlayer:
             if process.returncode not in (0, -signal.SIGTERM):
                 LOG.error("aplay failed (%s): %s", process.returncode, stderr.strip())
                 self._stop.wait(1.0)
+            return process.returncode == 0
         except OSError as exc:
             LOG.error("could not start aplay: %s", exc)
             self._stop.wait(2.0)
+            return False
         finally:
             with self._lock:
                 self._process = None
@@ -235,7 +258,8 @@ class AlarmPlayer:
             except queue.Empty:
                 one_shot = None
             if one_shot is not None:
-                self._play(one_shot)
+                if not self._active.is_set() and self._play(one_shot):
+                    LOG.info("one-shot TTS playback completed")
                 continue
             if not self._active.wait(0.2):
                 continue

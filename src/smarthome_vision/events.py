@@ -110,6 +110,27 @@ class EventBus:
             retain=True,
         )
 
+    def publish_audio(self, action: str, volume: int | None = None) -> None:
+        """Fixed demo commands only, never synthesize an actual fall event."""
+        if action == "test_tts":
+            topic = "home/safety/fall/audio/command"
+            payload = {"action": "test_tts", "source": "pi5-audio-test"}
+            retain = False
+        elif action == "volume" and type(volume) is int and 0 <= volume <= 100:
+            topic = "home/safety/fall/audio/config"
+            payload = {"volume": volume}
+            retain = True
+        else:
+            raise ValueError("Unsupported audio command")
+        if self._client is None or not self._connected:
+            raise RuntimeError("Pi4 MQTT가 연결되지 않았습니다.")
+        info = self._client.publish(topic, json.dumps(payload), qos=1, retain=retain)
+        if info.rc != mqtt.MQTT_ERR_SUCCESS:
+            raise RuntimeError("MQTT 명령을 보내지 못했습니다.")
+        info.wait_for_publish(timeout=2)
+        if not info.is_published():
+            raise RuntimeError("MQTT 수신 확인 시간 초과입니다. 즉시 반복 클릭하지 마세요.")
+
     def recent(self) -> list[dict[str, Any]]:
         with self._lock:
             return list(self._events)

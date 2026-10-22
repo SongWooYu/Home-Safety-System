@@ -30,6 +30,11 @@ id "$service_user" >/dev/null 2>&1 || {
 
 install -d -m 0755 /usr/local/lib/home-safety
 install -m 0755 "$pi4_dir/audio_alarm.py" /usr/local/lib/home-safety/audio_alarm.py
+if [[ -n "${ALARM_TTS_ASSET:-}" ]]; then
+  [[ -f "$ALARM_TTS_ASSET" ]] || { echo "TTS WAV does not exist." >&2; exit 4; }
+  install -d -m 0755 /usr/local/share/home-safety
+  install -m 0644 "$ALARM_TTS_ASSET" /usr/local/share/home-safety/fall-detected-ko.wav
+fi
 install -m 0644 \
   "$pi4_dir/systemd/smarthome-audio-alarm.service" \
   /etc/systemd/system/smarthome-audio-alarm.service

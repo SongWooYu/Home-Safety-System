@@ -175,20 +175,18 @@ def test_alarm():
 
 @app.post("/api/alarm/tts-test")
 def test_alarm_tts():
-    if not admin_authorized():
-        return jsonify({"error": "관리 키가 필요합니다."}), 401
+    # Legacy web is disabled by default. Fixed audio demo commands need no key.
     publish_audio_command("test_tts")
     return jsonify({"sent": True, "audio": "test_tts"})
 
 
 @app.post("/api/alarm/volume")
 def set_alarm_volume():
-    if not admin_authorized():
-        return jsonify({"error": "관리 키가 필요합니다."}), 401
     payload = request.get_json(silent=True) or {}
-    try:
-        volume = int(payload.get("volume"))
-    except (TypeError, ValueError):
+    if not isinstance(payload, dict):
+        return jsonify({"error": "JSON 객체가 필요합니다."}), 400
+    volume = payload.get("volume")
+    if type(volume) is not int:
         return jsonify({"error": "음량은 0~100 정수여야 합니다."}), 400
     if not 0 <= volume <= 100:
         return jsonify({"error": "음량은 0~100 범위여야 합니다."}), 400

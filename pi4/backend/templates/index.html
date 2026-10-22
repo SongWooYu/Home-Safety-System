@@ -173,9 +173,10 @@
     }
   }
   async function alarmRequest(path, body=null) {
+    const isAudio=path==='/api/alarm/tts-test' || path==='/api/alarm/volume';
     const supplied=token.value.trim();
-    sessionStorage.setItem('pi4AdminToken',supplied);
-    const options={method:'POST',headers:{'X-Admin-Token':supplied}};
+    if(!isAudio)sessionStorage.setItem('pi4AdminToken',supplied);
+    const options={method:'POST',headers:isAudio?{}:{'X-Admin-Token':supplied}};
     if(body!==null){
       options.headers['Content-Type']='application/json';
       options.body=JSON.stringify(body);

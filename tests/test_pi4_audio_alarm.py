@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import unittest
+import tempfile
+import wave
 from pathlib import Path
+from unittest.mock import patch
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "pi4" / "audio_alarm.py"
@@ -13,6 +16,21 @@ SPEC.loader.exec_module(audio_alarm)
 
 
 class Pi4AudioAlarmTest(unittest.TestCase):
+    def test_cached_natural_speech_is_used_without_synthesis(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cached = Path(directory) / "cached.wav"
+            target = Path(directory) / "play.wav"
+            with wave.open(str(cached), "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(48000)
+                wav.writeframes(b"\x00\x00" * 4800)
+            with patch.dict(audio_alarm.os.environ, {"ALARM_TTS_WAV":str(cached)}), \
+                    patch.object(audio_alarm.subprocess, "run") as run:
+                self.assertTrue(audio_alarm.generate_tts_wav(target, "낙상이 감지되었습니다."))
+                run.assert_not_called()
+            self.assertEqual(cached.read_bytes(), target.read_bytes())
+
     def test_parses_boolean_alarm_state(self):
         self.assertTrue(audio_alarm.parse_alarm_active('{"active": true}'))
         self.assertFalse(audio_alarm.parse_alarm_active('{"active": false}'))

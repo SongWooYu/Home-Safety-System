@@ -87,14 +87,14 @@ chown root:"$OPERATOR_GROUP" "$ENV_FILE"
 chmod 0640 "$ENV_FILE"
 
 legacy_pg=""
-for candidate in smarthome_postgres postgres; do
+for candidate in smarthome-postgres smarthome_postgres postgres; do
   if docker inspect "$candidate" >/dev/null 2>&1; then
     legacy_pg="$candidate"
     break
   fi
 done
 legacy_mqtt=""
-for candidate in smarthome_mosquitto mosquitto mqtt; do
+for candidate in smarthome-mqtt smarthome_mosquitto mosquitto mqtt; do
   if docker inspect "$candidate" >/dev/null 2>&1; then
     legacy_mqtt="$candidate"
     break
@@ -103,8 +103,8 @@ done
 
 if [[ -n "$legacy_pg$legacy_mqtt" && "$MIGRATE" != true ]]; then
   echo "A legacy MQTT/PostgreSQL stack was detected."
-  echo "Nothing was stopped. Re-run explicitly:"
-  echo "  sudo ./pi4/scripts/install.sh --migrate-legacy /opt/smarthome"
+  echo "Nothing was stopped. Do NOT auto-migrate a collaborator's /opt/smarthome."
+  echo "See docs/PI4_ALIGNMENT_2026-10-22.md; use install-audio-alarm.sh for audio only."
   exit 3
 fi
 
@@ -161,18 +161,17 @@ install -d -m 0700 "$postgres_data"
 chown 999:999 "$postgres_data" || true
 chown 1883:1883 "$PI4_DIR/runtime/mqtt/data" || true
 
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build
+docker compose --profile standalone-db --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build mqtt postgres collector automation
 
 if [[ "${INSTALL_AUDIO_ALARM:-1}" == "1" ]]; then
   ALARM_SERVICE_USER="$OPERATOR_USER" "$SCRIPT_DIR/install-audio-alarm.sh"
 fi
 
-web_port="$(sed -n 's/^WEB_PORT=//p' "$ENV_FILE")"
-web_port="${web_port:-8081}"
 for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:$web_port/health" >/dev/null; then
-    echo "Pi4 stack is ready: http://$(hostname -I | awk '{print $1}'):$web_port"
-    echo "Admin token: sudo sed -n 's/^ADMIN_TOKEN=//p' $ENV_FILE"
+  if docker compose --profile standalone-db --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
+    sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null; then
+    echo "Standalone Pi4 database is ready; 8081 dashboard stays disabled."
+    echo "Audio tests: Pi5 :8080. Existing collaborator UI remains on Pi4 :8000."
     exit 0
   fi
   sleep 2

@@ -9,8 +9,6 @@ x-backend: &backend
   depends_on:
     mqtt:
       condition: service_healthy
-    postgres:
-      condition: service_healthy
 
 services:
   mqtt:
@@ -28,6 +26,8 @@ services:
       retries: 6
 
   postgres:
+    # Opt-in only: the collaborator already owns the live PostgreSQL instance.
+    profiles: ["standalone-db"]
     image: postgres:16-bookworm
     restart: unless-stopped
     environment:
@@ -35,7 +35,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - ${POSTGRES_DATA_DIR:-/srv/smarthome-data/postgres}:/var/lib/postgresql/data
+      - ${POSTGRES_DATA_DIR:-/srv/smarthome-data/home-safety-postgres}:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -45,6 +45,12 @@ services:
 
   collector:
     <<: *backend
+    profiles: ["standalone-db"]
+    depends_on:
+      mqtt:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     command: ["python", "-m", "collector"]
 
   automation:
@@ -53,6 +59,13 @@ services:
 
   web:
     <<: *backend
+    # Retired demo dashboard. Future UI belongs to collaborator :8000.
+    profiles: ["legacy-web"]
+    depends_on:
+      mqtt:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     command: ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "2", "--timeout", "30", "web:app"]
     ports:
       - "${WEB_PORT:-8081}:8080"

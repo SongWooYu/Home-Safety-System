@@ -76,30 +76,20 @@ class Pi4WebRtcDashboardTest(unittest.TestCase):
             ],
         )
 
-    def test_alarm_tts_cancel_and_volume_require_admin_key(self):
+    def test_real_alarm_keeps_key_but_audio_demo_needs_no_key(self):
         with patch.dict(os.environ, {"ADMIN_TOKEN": "alarm-secret"}):
             self.assertEqual(self.client.post("/api/alarm/test").status_code, 401)
-            self.assertEqual(
-                self.client.post("/api/alarm/tts-test").status_code,
-                401,
-            )
             self.assertEqual(self.client.post("/api/alarm/cancel").status_code, 401)
-            self.assertEqual(
-                self.client.post("/api/alarm/volume", json={"volume": 70}).status_code,
-                401,
-            )
 
             headers = {"X-Admin-Token": "alarm-secret"}
             with patch.object(pi4_web, "single") as publish:
                 test_response = self.client.post("/api/alarm/test", headers=headers)
                 tts_response = self.client.post(
                     "/api/alarm/tts-test",
-                    headers=headers,
                 )
                 cancel_response = self.client.post("/api/alarm/cancel", headers=headers)
                 volume_response = self.client.post(
                     "/api/alarm/volume",
-                    headers=headers,
                     json={"volume": 65},
                 )
 

@@ -26,6 +26,30 @@ async function requestJSON(url, options = {}, timeout = 5000) {
   } finally { clearTimeout(timer); }
 }
 
+let audioBusy = false;
+async function audioRequest(path, payload, message) {
+  if (audioBusy) return;
+  audioBusy = true;
+  $("audio-test").disabled = $("audio-volume-apply").disabled = true;
+  setText("audio-status", "Pi4에 명령을 보내고 있습니다…");
+  try {
+    await requestJSON(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+    setText("audio-status", message + " · MQTT 전달 확인, 실제 소리는 현장에서 확인해 주세요.");
+  } catch (error) { setText("audio-status", error.message); }
+  finally {
+    setTimeout(() => {
+      audioBusy = false;
+      $("audio-test").disabled = $("audio-volume-apply").disabled = !latestStatus?.mqtt_connected;
+    }, 3000);
+  }
+}
+$("audio-volume").addEventListener("input", event => setText("audio-volume-value", `${event.target.value}%`));
+$("audio-test").addEventListener("click", () => audioRequest("/api/audio/test", {}, "음성 1회 재생 명령을 보냈습니다"));
+$("audio-volume-apply").addEventListener("click", () => {
+  const volume = Number($("audio-volume").value);
+  audioRequest("/api/audio/volume", {volume}, `음량 ${volume}% 적용 명령을 보냈습니다`);
+});
+
 function connectStream(img) {
   if (document.hidden) return;
   clearTimeout(reconnectTimers.get(img.id));
@@ -161,6 +185,7 @@ function renderStatus(data) {
   setText("mqtt-label", data.mqtt_connected ? "Pi4 경보 연결됨" : "Pi4 경보 연결 대기");
   setText("mqtt-detail", data.mqtt_connected ? "MQTT 브로커 연결됨" : "이 화면에서 감지는 계속됩니다");
   $("mqtt-dot").classList.toggle("connected", data.mqtt_connected);
+  if (!audioBusy) $("audio-test").disabled = $("audio-volume-apply").disabled = !data.mqtt_connected;
   setText("diag-mqtt", `${data.fall_events_publish_mqtt ? "발행 활성" : "발행 비활성"} / ${data.mqtt_connected ? "연결됨" : "연결 끊김"}`);
   const view = data.cameras.find(c => c.face_enabled)?.camera_view;
   setText("diag-camera", view ? `${view.sensor_size.join(" × ")} · 최대 화각` : "—");
