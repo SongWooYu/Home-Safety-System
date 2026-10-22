@@ -12,11 +12,16 @@
       [hidden] {display:none!important;} h2 {margin:0 35px 12px 0;font-size:21px;} p {margin:6px 0;} small {display:block;color:#c1cbd9;margin-top:14px;font-size:12px;}
       button {position:absolute;right:14px;top:16px;width:32px;height:32px;border:1px solid #8190a7;border-radius:8px;background:transparent;color:white;font-size:22px;cursor:pointer;}
       button:focus-visible {outline:3px solid #a8caff;} @keyframes arrive {from {opacity:0;transform:translateY(-8px);} to {opacity:1;transform:translateY(0);}}
+      #show-image {position:static;width:100%;height:auto;font-size:14px;padding:10px;margin-top:12px;}
+      #fall-image {display:block;width:100%;max-height:45vh;object-fit:contain;margin-top:12px;border-radius:8px;}
       @media(prefers-reduced-motion:reduce) {section {animation:none;}}
     </style>
     <section role="dialog" aria-modal="false" aria-labelledby="fall-title" hidden>
       <button type="button" aria-label="낙상 알림 닫기">×</button>
       <h2 id="fall-title">낙상 감지</h2><div role="status" aria-live="polite"><p id="fall-camera"></p><p id="fall-time"></p></div>
+      <button type="button" id="show-image" hidden>발생 당시 캡처 확인</button>
+      <img id="fall-image" alt="낙상 확정 시점 카메라 캡처 (시험인 경우 현재 화면)" hidden>
+      <p id="image-status" role="status"></p>
       <small>현장 상황을 확인해 주세요.<br>닫기는 알림창만 숨깁니다. 스피커 경보는 해제하지 않습니다.</small>
     </section>`;
   document.body.append(host);
@@ -31,6 +36,14 @@
     panel.hidden = true;
   }
   root.querySelector("button").addEventListener("click", dismiss);
+  const picture = root.getElementById("fall-image");
+  root.getElementById("show-image").addEventListener("click", () => {
+    root.getElementById("image-status").textContent = "Pi5에서 캡처 한 장을 가져옵니다…";
+    picture.src = `/api/fall-notices/${encodeURIComponent(current)}/snapshot.jpg`;
+    picture.hidden = false;
+  });
+  picture.onload = () => { root.getElementById("image-status").textContent = "확정 시점 최신 프레임 · 최대 1시간/50장 보관 · 재시작 시 삭제"; };
+  picture.onerror = () => { picture.hidden = true; root.getElementById("image-status").textContent = "캡처가 만료되었거나 Pi5에 연결할 수 없습니다."; };
   document.addEventListener("pointerdown", event => {
     if (!panel.hidden && !event.composedPath().includes(host)) dismiss();
   }, true);
@@ -49,6 +62,10 @@
       if (events.length) {
         const event = events[events.length - 1];
         current = event.event_id;
+        root.getElementById("fall-title").textContent = event.test ? "[시험] 낙상 감지" : "낙상 감지";
+        picture.hidden = true; picture.removeAttribute("src");
+        root.getElementById("image-status").textContent = event.test ? "AI 판정이 아닌 수동 통신 시험입니다. 시험 경보는 30초 후 자동 해제됩니다." : "";
+        root.getElementById("show-image").hidden = !event.snapshot_available;
         root.getElementById("fall-camera").textContent = `${event.camera_id === "dahua" ? "Dahua 낙상 카메라" : event.camera_id}에서 낙상이 감지되었습니다.`;
         root.getElementById("fall-time").textContent = new Date(event.timestamp).toLocaleString("ko-KR");
         panel.hidden = false;

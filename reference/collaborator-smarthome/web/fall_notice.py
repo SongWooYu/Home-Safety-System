@@ -10,8 +10,16 @@ import json
 import threading
 import time
 import uuid
+import re
+from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
+from urllib.error import HTTPError, URLError
 
-from flask import jsonify, request
+from flask import Response, abort, jsonify, request
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
 
 
 class FallNotices:
@@ -42,6 +50,11 @@ class FallNotices:
             age = (datetime.now(timezone.utc) - timestamp).total_seconds()
             if not -30 <= age <= 120:
                 return False  # Never replay old alarms on reconnect.
+            details = event.get("details")
+            details = details if isinstance(details, dict) else {}
+            snapshot = details.get("snapshot")
+            snapshot_id = snapshot.get("id") if isinstance(snapshot, dict) else None
+            has_snapshot = snapshot_id == event_id and re.fullmatch(r"[0-9a-f]{32}", event_id) is not None
         except (ValueError, TypeError, KeyError, AttributeError, UnicodeError):
             return False
         with self.lock:
@@ -51,6 +64,8 @@ class FallNotices:
             self.sequence += 1
             self.events.append({"sequence": self.sequence, "event_id": event_id,
                                 "camera_id": camera, "timestamp": timestamp.isoformat(),
+                                "test": details.get("test") is True,
+                                "snapshot_available": has_snapshot,
                                 "received_at": time.time()})
         return True
 
@@ -82,6 +97,26 @@ def install(app):
         response = jsonify(notices.snapshot(after, request.args.get("epoch")))
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    @app.get("/api/fall-notices/<event_id>/snapshot.jpg")
+    def event_snapshot(event_id):
+        # Only a known event can select an image; never accept a URL from MQTT.
+        with notices.lock:
+            found = any(e["event_id"] == event_id and e["snapshot_available"]
+                        and time.time() - e["received_at"] < 3600 for e in notices.events)
+        if not found or not re.fullmatch(r"[0-9a-f]{32}", event_id):
+            abort(404)
+        try:
+            opener = build_opener(ProxyHandler({}), NoRedirect())
+            with opener.open(Request(f"http://192.168.1.20:8080/api/events/{event_id}/snapshot.jpg"), timeout=3) as upstream:
+                data = upstream.read(512001)
+                if upstream.headers.get_content_type() != "image/jpeg" or len(data) > 512000 or not data.startswith(b"\xff\xd8"):
+                    abort(502)
+            return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+        except HTTPError as exc:
+            abort(404 if exc.code == 404 else 502)
+        except (URLError, OSError, TimeoutError):
+            abort(503)
 
     client = mqtt.Client(client_id="pi4-fall-notice-" + uuid.uuid4().hex[:8])
 
