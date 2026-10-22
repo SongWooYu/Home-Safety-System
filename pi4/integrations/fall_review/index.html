@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>낙상 기록 · 현재 상황 확인</title>
+  <link rel="stylesheet" href="/fall-review/assets/review.css">
+  <script src="/fall-review/assets/review.js" defer></script>
+</head>
+<body>
+  <header><div><span class="eyebrow">HOME SAFETY · 사건 확인</span><h1>그때의 기록, 지금의 상황</h1></div><a href="/">관제 대시보드</a></header>
+  <main>
+    <section class="views" aria-label="발생 당시와 현재 비교">
+      <article class="card">
+        <div class="card-heading"><span class="pill">발생 당시 · 사진</span><h2 id="event-title">기록을 선택해 주세요</h2><p id="event-time">낙상 확정 사건의 캡처입니다.</p></div>
+        <div class="media"><img id="snapshot" alt="선택한 낙상 사건의 발생 당시 캡처" hidden><p id="snapshot-message">아래 사건 목록에서 선택하면 캡처를 확인할 수 있습니다.</p></div>
+        <div class="card-footer"><p id="event-detail">실제 감지와 수동 시험을 구분해 표시합니다.</p><p class="muted">사진에는 당시 박스·관절이 포함됩니다. 현재 영상이 아닙니다.</p></div>
+      </article>
+      <article class="card">
+        <div class="card-heading"><span class="pill live">현재 · 실시간 영상</span><h2>Dahua 낙상 카메라</h2><p id="transport" role="status">Pi5 직접 연결 준비 중</p></div>
+        <div class="media"><video id="live-video" autoplay muted playsinline hidden aria-label="현재 Dahua 카메라 원본 영상"></video><p id="video-message">WebRTC로 연결합니다…</p></div>
+        <div class="card-footer"><div class="current-row"><strong id="current-state" role="status">현재 AI 상태 확인 중</strong><button id="reconnect" type="button">영상 다시 연결</button></div><p id="current-detail" class="clamp"></p><p id="current-time" class="muted">사진과 무관한 현재 분석 상태입니다.</p></div>
+      </article>
+    </section>
+    <section class="card history" aria-labelledby="history-heading">
+      <div class="history-heading"><div><h2 id="history-heading">최근 낙상 확정 기록 <span id="count">0 / 50</span></h2><p id="history-status" role="status">기록을 불러옵니다…</p></div><label>표시 <select id="filter"><option value="all">전체</option><option value="real">실제 AI 감지</option><option value="test">수동 시험</option></select></label></div>
+      <div id="history-list" aria-label="최근 사건 목록"></div><p id="history-empty" hidden>아직 수신한 기록이 없습니다.</p>
+      <p class="retention">사건 목록은 Pi4 메모리에 최근 50건만 보관하며 51번째부터 가장 오래된 항목을 삭제합니다. Pi4 웹 서비스 재시작 시 초기화됩니다. 사진은 Pi5에 최대 50장·1시간 보관하며 Pi5 재시작 시 삭제됩니다. 만료된 사진을 현재 화면으로 대체하지 않습니다.</p>
+    </section>
+    <p class="footnote">현재 영상은 브라우저 ↔ Pi5 WebRTC 직접 연결입니다. Pi4는 연결 정보와 캡처 한 장만 전달하며 실시간 영상을 중계하지 않습니다. 박스·관절 없는 원본 영상입니다. 외부에서는 Pi5에 연결할 수 있는 LAN 또는 Tailscale 경로가 필요합니다. 이 화면을 닫아도 경보는 해제되지 않습니다.</p>
+  </main>
+</body>
+</html>
